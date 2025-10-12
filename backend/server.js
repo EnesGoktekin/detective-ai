@@ -17,6 +17,16 @@ app.get('/', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Simple health check to verify deployment and env
+app.get('/api/health', (_req, res) => {
+  res.json({
+    ok: true,
+    env: {
+      OPENAI_API_KEY: Boolean(process.env.OPENAI_API_KEY),
+    },
+  });
+});
+
 app.get('/api/cases', async (_req, res) => {
   try {
     const filePath = path.join(__dirname, 'data', 'cases.json');
