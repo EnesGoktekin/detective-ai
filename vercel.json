@@ -1,11 +1,5 @@
 {
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/[...path]" }
-  ],
-  "functions": {
-    "api/**": {
-      "runtime": "nodejs20.x",
-      "includeFiles": "backend/data/**"
-    }
-  }
+  ]
 }
