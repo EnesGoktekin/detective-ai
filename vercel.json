@@ -3,7 +3,9 @@
     { "source": "/api/(.*)", "destination": "/api/[...path]" }
   ],
   "functions": {
-    "runtime": "nodejs20.x",
-    "includeFiles": "backend/data/**"
+    "api/**": {
+      "runtime": "nodejs20.x",
+      "includeFiles": "backend/data/**"
+    }
   }
 }
