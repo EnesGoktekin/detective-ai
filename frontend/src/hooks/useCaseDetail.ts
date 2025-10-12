@@ -26,7 +26,7 @@ export function useCaseDetail(caseId: string): UseCaseDetailResult {
       setIsLoading(true);
       setError(null);
       try {
-        const res = await fetch(`http://localhost:3004/api/cases/${caseId}`);
+  const res = await fetch(`/api/cases/${caseId}`);
         if (!res.ok) {
           const text = await res.text().catch(() => '');
           throw new Error(text || `Failed to fetch case ${caseId}`);

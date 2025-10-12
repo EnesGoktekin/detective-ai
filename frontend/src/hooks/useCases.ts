@@ -16,7 +16,7 @@ export function useCases(): UseCasesResult {
   useEffect(() => {
     setIsLoading(true);
     setError(null);
-    fetch('http://localhost:3004/api/cases')
+  fetch('/api/cases')
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch cases');
         return res.json();
