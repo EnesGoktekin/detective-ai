@@ -4,5 +4,10 @@
       "source": "/api/(.*)",
       "destination": "/backend/server.js"
     }
-  ]
+  ],
+  "functions": {
+    "backend/server.js": {
+      "runtime": "nodejs20.x"
+    }
+  }
 }
