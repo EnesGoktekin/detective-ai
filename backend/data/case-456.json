@@ -1,0 +1,51 @@
+{
+  "id": "case-456",
+  "title": "The Silent Starlet",
+  "synopsis": "A rising movie star vanishes from her movie set without a trace. The only clue is a cryptic note left in her dressing room. Did she run away or was she taken?",
+  "caseNumber": "CASE-456",
+  "fullStory": "Lila Monroe, Hollywood's newest sensation, disappeared midway through filming her breakout role. She was last seen entering her dressing room during a lunch break. The crew found the room empty, except for a note that read: 'I can't live this lie anymore. The stage is dark.' Her agent is frantic, but the studio director seems unusually calm.",
+  "victim": {
+    "name": "Lila Monroe",
+    "age": 24,
+    "occupation": "Actress"
+  },
+  "location": "Galaxy Studios, Set 7, Dressing Room",
+  "suspects": [
+    {
+      "id": "suspect-4",
+      "name": "Rex Hunter",
+      "shortInfo": "Lila's jealous co-star, who felt overshadowed."
+    },
+    {
+      "id": "suspect-5",
+      "name": "Marcus Thorne",
+      "shortInfo": "The controlling studio director with a temper."
+    },
+    {
+      "id": "suspect-6",
+      "name": "Brenda Wallace",
+      "shortInfo": "Her secretive agent, who knew Lila wanted to quit acting."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "evidence-4",
+      "name": "The Cryptic Note",
+      "description": "A note written on a napkin: 'I can't live this lie anymore. The stage is dark.'"
+    },
+    {
+      "id": "evidence-5",
+      "name": "Rex's Script",
+      "description": "Rex Hunter's script has angry scribbles over Lila's lines, with notes like 'She's stealing my spotlight!'"
+    },
+    {
+      "id": "evidence-6",
+      "name": "Half-Packed Suitcase",
+      "description": "A suitcase hidden in Lila's dressing room closet, half-filled with everyday clothes, not fancy costumes."
+    }
+  ],
+  "correctAccusation": {
+    "suspectId": "suspect-6",
+    "evidenceId": "evidence-6"
+  }
+}
