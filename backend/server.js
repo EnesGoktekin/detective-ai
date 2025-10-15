@@ -57,10 +57,11 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: "Missing message or caseId" });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    // Gemini API Key (prefer GEMINI_API_KEY, fallback GOOGLE_API_KEY)
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) {
-      console.error("ÖLÜMCÜL HATA: OPENAI_API_KEY ayarlanmamış!");
-      return res.status(500).json({ error: "Server is missing AI configuration." });
+      console.error("ÖLÜMCÜL HATA: GEMINI_API_KEY/GOOGLE_API_KEY ayarlanmamış!");
+      return res.status(500).json({ error: "Server is missing AI configuration (Gemini API Key)." });
     }
 
     const filePath = path.join(__dirname, 'data', `${caseId}.json`);
@@ -79,18 +80,35 @@ app.post('/api/chat', async (req, res) => {
 
 CASE DATA:
 ${JSON.stringify(caseData)}`;
-    const messages = [{ role: "system", content: systemPrompt }, ...(chatHistory || []), { role: "user", content: message }];
+    // Map chat history to Gemini format (user/assistant -> user/model)
+    const history = Array.isArray(chatHistory) ? chatHistory : [];
+    const contents = [
+      ...history.map((m) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: String(m.content ?? '') }],
+      })),
+      { role: 'user', parts: [{ text: String(message) }] },
+    ];
+
+    const model = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
 
     const response = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      { model: "gpt-4o", messages },
-      { headers: { "Authorization": `Bearer ${apiKey}` } }
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents,
+      },
+      {
+        headers: { 'Content-Type': 'application/json' },
+      }
     );
-  console.log("[BACKEND-DEBUG] Raw AI Response:", response.data?.choices?.[0]?.message?.content);
-  const aiResponse = response.data.choices[0].message.content || "";
-  console.log("[BACKEND-DEBUG] Raw AI Response String:", aiResponse);
 
-  const rawText = response.data.choices[0].message.content || "";
+  const candidate = response.data?.candidates?.[0];
+  const parts = candidate?.content?.parts || [];
+  const aiResponse = parts.map((p) => p?.text || '').join('');
+  console.log("[BACKEND-DEBUG] Raw AI Response String (Gemini):", aiResponse);
+
+  const rawText = aiResponse || "";
     const unlockedEvidenceIds = [];
     // Find ALL evidence unlock tags and collect their IDs
     const tagRegex = /\[EVIDENCE UNLOCKED:\s*([^\]]+)\]/gi;
