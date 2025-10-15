@@ -90,7 +90,7 @@ ${JSON.stringify(caseData)}`;
       { role: 'user', parts: [{ text: String(message) }] },
     ];
 
-    const model = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+  const model = process.env.GEMINI_MODEL || 'gemini-1.5-pro-latest';
 
     const response = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -133,6 +133,34 @@ ${JSON.stringify(caseData)}`;
       console.error('Genel Hata:', error);
     }
     res.status(500).json({ error: 'An error occurred while contacting the AI service.' });
+  }
+});
+
+// List available Gemini models and which support generateContent
+app.get('/api/models', async (_req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Missing GEMINI_API_KEY/GOOGLE_API_KEY' });
+    }
+   const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+    const { data } = await axios.get(url);
+    const models = Array.isArray(data?.models) ? data.models : [];
+    const simplified = models.map((m) => ({
+      name: m?.name,
+      displayName: m?.displayName,
+      baseModelId: m?.baseModelId,
+      version: m?.version,
+      supportsGenerateContent: Array.isArray(m?.supportedGenerationMethods)
+        ? m.supportedGenerationMethods.includes('generateContent')
+        : Array.isArray(m?.supported_actions)
+          ? m.supported_actions.includes('generateContent')
+          : undefined,
+    }));
+    res.json({ models: simplified });
+  } catch (err) {
+    console.error('HATA /api/models:', err?.response?.data || err);
+    res.status(500).json({ error: 'Failed to list models' });
   }
 });
 
