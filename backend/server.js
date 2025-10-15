@@ -1,14 +1,21 @@
 import express from 'express';
 import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs/promises';
 import axios from 'axios';
+import { createClient } from '@supabase/supabase-js';
 
 const app = express();
 const PORT = 3004;
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+
+// Initialize Supabase client
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('ÖLÜMCÜL HATA: SUPABASE_URL ve SUPABASE_ANON_KEY environment variables gerekli!');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.use(cors());
 app.use(express.json());
@@ -29,9 +36,22 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/cases', async (_req, res) => {
   try {
-    const filePath = path.join(__dirname, 'data', 'cases.json');
-    const data = await fs.readFile(filePath, 'utf-8');
-    res.json(JSON.parse(data));
+    const { data, error } = await supabase
+      .from('cases')
+      .select('id, title, synopsis, case_number')
+      .order('created_at', { ascending: true });
+    
+    if (error) throw error;
+    
+    // Map to match frontend expectation (caseNumber instead of case_number)
+    const cases = data.map(c => ({
+      id: c.id,
+      title: c.title,
+      synopsis: c.synopsis,
+      caseNumber: c.case_number
+    }));
+    
+    res.json(cases);
   } catch (error) {
     console.error('HATA /api/cases:', error);
     res.status(500).json({ error: 'Failed to load cases' });
@@ -41,9 +61,40 @@ app.get('/api/cases', async (_req, res) => {
 app.get('/api/cases/:caseId', async (req, res) => {
   try {
     const { caseId } = req.params;
-    const filePath = path.join(__dirname, 'data', `${caseId}.json`);
-    const data = await fs.readFile(filePath, 'utf-8');
-    res.json(JSON.parse(data));
+    
+    // Fetch case basic info
+    const { data: caseInfo, error: caseError } = await supabase
+      .from('cases')
+      .select('*')
+      .eq('id', caseId)
+      .single();
+    
+    if (caseError) throw caseError;
+    
+    // Fetch case details
+    const { data: details, error: detailsError } = await supabase
+      .from('case_details')
+      .select('*')
+      .eq('id', caseId)
+      .single();
+    
+    if (detailsError) throw detailsError;
+    
+    // Combine and map to match frontend expectation
+    const caseData = {
+      id: caseInfo.id,
+      title: caseInfo.title,
+      synopsis: caseInfo.synopsis,
+      caseNumber: caseInfo.case_number,
+      fullStory: details.full_story,
+      victim: details.victim,
+      location: details.location,
+      suspects: details.suspects,
+      evidence: details.evidence,
+      correctAccusation: details.correct_accusation
+    };
+    
+    res.json(caseData);
   } catch (error) {
     console.error(`HATA /api/cases/${req.params.caseId}:`, error);
     res.status(404).json({ error: 'Case not found' });
@@ -64,8 +115,36 @@ app.post('/api/chat', async (req, res) => {
       return res.status(500).json({ error: "Server is missing AI configuration (Gemini API Key)." });
     }
 
-    const filePath = path.join(__dirname, 'data', `${caseId}.json`);
-    const caseData = JSON.parse(await fs.readFile(filePath, "utf-8"));
+    // Fetch case data from Supabase
+    const { data: caseInfo, error: caseError } = await supabase
+      .from('cases')
+      .select('*')
+      .eq('id', caseId)
+      .single();
+    
+    if (caseError) throw caseError;
+    
+    const { data: details, error: detailsError } = await supabase
+      .from('case_details')
+      .select('*')
+      .eq('id', caseId)
+      .single();
+    
+    if (detailsError) throw detailsError;
+    
+    // Combine case data for the AI prompt
+    const caseData = {
+      id: caseInfo.id,
+      title: caseInfo.title,
+      synopsis: caseInfo.synopsis,
+      caseNumber: caseInfo.case_number,
+      fullStory: details.full_story,
+      victim: details.victim,
+      location: details.location,
+      suspects: details.suspects,
+      evidence: details.evidence,
+      correctAccusation: details.correct_accusation
+    };
 
   const systemPrompt = `You are "AI Detective", a witty, sharp, and focused detective assistant. Your ONLY goal is to help the user solve the case provided in the 'CASE DATA' below.
 
@@ -90,7 +169,8 @@ ${JSON.stringify(caseData)}`;
       { role: 'user', parts: [{ text: String(message) }] },
     ];
 
-  const model = process.env.GEMINI_MODEL || 'gemini-1.5-pro-latest';
+  // Use the working model gemini-2.5-flash as default
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
     const response = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
