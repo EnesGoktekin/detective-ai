@@ -265,17 +265,6 @@ Follow the rules array strictly. Respond as the Colleague character based on the
   console.log("[DEBUG] Full Gemini API Response:", JSON.stringify(response.data, null, 2));
 
   const candidate = response.data?.candidates?.[0];
-  
-  // Check for safety blocks or finish reasons
-  if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
-    console.error("[GEMINI-ERROR] Response blocked! Finish Reason:", candidate.finishReason);
-    console.error("[GEMINI-ERROR] Safety Ratings:", JSON.stringify(candidate.safetyRatings, null, 2));
-    return res.json({ 
-      responseText: "Hmm, I need to rephrase that. Can you ask me in a different way? 🤔", 
-      unlockedEvidenceIds: [] 
-    });
-  }
-
   const parts = candidate?.content?.parts || [];
   const aiResponse = parts.map((p) => p?.text || '').join('');
   
