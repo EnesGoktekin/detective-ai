@@ -3,9 +3,10 @@ import { useParams, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, X, Info } from "lucide-react";
+import { Send, X, Info, HelpCircle } from "lucide-react";
 import GameEndDialog from "@/components/GameEndDialog";
 import AccusationDialog from "../components/AccusationDialog";
+import { GameTutorial } from "@/components/GameTutorial";
 import { useCaseDetail } from "../hooks/useCaseDetail";
 
 
@@ -19,7 +20,19 @@ const GamePage = () => {
   const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(false);
   const [unlockedEvidenceIds, setUnlockedEvidenceIds] = useState<string[]>([]);
   const [startTimeMs] = useState<number>(() => Date.now());
+  const [showTutorial, setShowTutorial] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Check if user has seen tutorial (only on first case ever)
+  useEffect(() => {
+    const hasSeenTutorial = localStorage.getItem("hasSeenTutorial");
+    if (!hasSeenTutorial && data) {
+      // Delay to ensure UI is fully rendered
+      setTimeout(() => {
+        setShowTutorial(true);
+      }, 1000);
+    }
+  }, [data]);
 
   // Seed the chat with the case's full story once it's loaded
   useEffect(() => {
@@ -106,14 +119,25 @@ const GamePage = () => {
         <div className="w-full md:w-[65%] flex flex-col bg-card rounded-lg border border-border shadow-noir">
           <div className="sticky top-0 z-10 -mx-6 px-6 py-4 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 border-b border-border flex items-center justify-between">
             <h2 className="font-playfair text-2xl text-primary md:hidden">Investigation Chat</h2>
-            {/* Mobile header actions: Info (left) and Close (right) */}
+            {/* Mobile header actions: How to Play + Info + Close */}
             <div className="flex items-center gap-2 md:hidden">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowTutorial(true)}
+                className="text-xs"
+              >
+                <HelpCircle className="h-4 w-4 mr-1" />
+                How to Play
+              </Button>
               <Button variant="outline" size="icon" onClick={() => setIsInfoPanelOpen(true)} aria-label="Open Case Info">
                 <Info className="h-4 w-4" />
               </Button>
-              <Button variant="outline" size="icon" onClick={() => setIsInfoPanelOpen(false)} aria-label="Close Case Info">
-                <X className="h-4 w-4" />
-              </Button>
+              <Link to="/">
+                <Button variant="outline" size="icon" aria-label="Back to Cases">
+                  <X className="h-4 w-4" />
+                </Button>
+              </Link>
             </div>
           </div>
           
@@ -155,7 +179,7 @@ const GamePage = () => {
 
         {/* Right Column - Case Info Panel (35%) */}
         <div
-          className={`w-full md:w-[35%] ${isInfoPanelOpen ? "absolute inset-0 h-full bg-slate-950 z-20" : "hidden"} md:block bg-slate-900 rounded-lg p-6 pt-4 md:pt-6 flex flex-col gap-6 shadow-noir`}
+          className={`case-info-panel w-full md:w-[35%] ${isInfoPanelOpen ? "absolute inset-0 h-full bg-slate-950 z-20" : "hidden"} md:block bg-slate-900 rounded-lg p-6 pt-4 md:pt-6 flex flex-col gap-6 shadow-noir`}
         >
           {/* Mobile sticky header to avoid overlapping content */}
           <div className="md:hidden sticky top-0 z-10 -mx-6 rounded-t-lg bg-slate-900/95 backdrop-blur supports-[backdrop-filter]:bg-slate-900/80 border-b border-border px-4 py-3 flex items-center gap-2">
@@ -190,10 +214,19 @@ const GamePage = () => {
                     Active Investigation
                   </p>
                 </div>
-                {/* Desktop exit button aligned to the right of the case title */}
-                <div className="hidden md:block">
+                {/* Desktop: How to Play + Exit buttons */}
+                <div className="hidden md:flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowTutorial(true)}
+                    className="text-xs"
+                  >
+                    <HelpCircle className="h-4 w-4 mr-1" />
+                    How to Play
+                  </Button>
                   <Link to="/">
-                    <Button variant="outline" size="icon" aria-label="Exit to Home" className="mt-1">
+                    <Button variant="outline" size="icon" aria-label="Back to Cases" className="mt-1">
                       <X className="h-4 w-4" />
                     </Button>
                   </Link>
@@ -275,6 +308,12 @@ const GamePage = () => {
           timePlayedMs={Date.now() - startTimeMs}
         />
       )}
+
+      {/* Tutorial */}
+      <GameTutorial
+        isOpen={showTutorial}
+        onClose={() => setShowTutorial(false)}
+      />
     </div>
   );
 };
