@@ -99,6 +99,7 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
     const tooltipWidth = isMobile ? Math.min(300, window.innerWidth - 40) : 320;
     const tooltipHeight = 150;
     const padding = 20;
+    const gapFromTarget = 30; // More space from target to avoid overlap
 
     let top = 0;
     let left = 0;
@@ -106,27 +107,40 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
     // Step-specific positioning
     if (currentStep === 0) {
       // Step 1: Send button (bottom of screen)
-      // Position tooltip above the button, centered
-      top = targetRect.top - tooltipHeight - padding;
+      // Position tooltip ABOVE the button with more gap
+      top = targetRect.top - tooltipHeight - gapFromTarget;
       left = targetRect.left + targetRect.width / 2 - tooltipWidth / 2;
+      
+      // If tooltip goes off top, position it to the side instead
+      if (top < padding) {
+        top = targetRect.top + targetRect.height / 2 - tooltipHeight / 2;
+        left = isMobile 
+          ? padding // On mobile, align left with padding
+          : targetRect.left - tooltipWidth - gapFromTarget; // On desktop, position to the left
+      }
     } else if (currentStep === 1) {
       // Step 2: Case info (right side on desktop, button on mobile)
       if (isMobile) {
         // Mobile: Info button at top right
-        // Position tooltip below and to the left
-        top = targetRect.bottom + padding;
-        left = targetRect.left - tooltipWidth + targetRect.width;
+        // Position tooltip below and to the left to avoid overlap
+        top = targetRect.bottom + gapFromTarget;
+        left = Math.max(padding, window.innerWidth - tooltipWidth - padding);
       } else {
         // Desktop: Large panel on right
-        // Position tooltip to the left of the panel
+        // Position tooltip to the left of the panel, vertically centered
         top = targetRect.top + targetRect.height / 2 - tooltipHeight / 2;
-        left = targetRect.left - tooltipWidth - padding;
+        left = targetRect.left - tooltipWidth - gapFromTarget;
       }
     } else if (currentStep === 2) {
-      // Step 3: Exit button (top right)
-      // Position tooltip below and to the left
-      top = targetRect.bottom + padding;
+      // Step 3: Exit button (always top right on both mobile and desktop)
+      // Position tooltip below and to the left to avoid overlap
+      top = targetRect.bottom + gapFromTarget;
       left = targetRect.left - tooltipWidth + targetRect.width;
+      
+      // Make sure it doesn't go off the left edge
+      if (left < padding) {
+        left = padding;
+      }
     }
 
     // Ensure tooltip stays in viewport
@@ -154,11 +168,12 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
       <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
         style={{ zIndex: 10000 }}
+        onClick={(e) => e.stopPropagation()}
       />
 
-      {/* Spotlight for target element - make it bright */}
+      {/* Spotlight border around target element */}
       <div
-        className="fixed border-4 border-primary rounded-lg pointer-events-none bg-transparent"
+        className="fixed border-4 border-primary rounded-lg pointer-events-none"
         style={{
           top: `${targetRect.top - 4}px`,
           left: `${targetRect.left - 4}px`,
@@ -166,6 +181,19 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
           height: `${targetRect.height + 8}px`,
           zIndex: 10001,
           boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.5), 0 0 30px rgba(255, 193, 7, 0.5)"
+        }}
+      />
+
+      {/* Bright area for the target element itself */}
+      <div
+        className="fixed pointer-events-none bg-white/10 rounded-lg"
+        style={{
+          top: `${targetRect.top}px`,
+          left: `${targetRect.left}px`,
+          width: `${targetRect.width}px`,
+          height: `${targetRect.height}px`,
+          zIndex: 10000,
+          backdropFilter: "brightness(1.5) contrast(1.2)"
         }}
       />
 
@@ -191,7 +219,7 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
                 onClick={handlePrev}
               >
                 <ChevronLeft className="h-4 w-4 mr-1" />
-                Geri
+                Back
               </Button>
             )}
           </div>
@@ -208,7 +236,7 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
                 size="sm"
                 onClick={handleNext}
               >
-                İleri
+                Next
                 <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             ) : (
@@ -217,7 +245,7 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
                 size="sm"
                 onClick={handleFinish}
               >
-                Anladım!
+                Got it!
               </Button>
             )}
           </div>
