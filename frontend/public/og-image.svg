@@ -1,0 +1,28 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark background -->
+  <rect width="1200" height="630" fill="#0A0E1A"/>
+  
+  <!-- Gradient overlay -->
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1A1F2E;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0A0E1A;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#grad)"/>
+  
+  <!-- Title -->
+  <text x="600" y="250" font-family="'Playfair Display', serif" font-size="72" font-weight="700" fill="#FFC107" text-anchor="middle">
+    AI DETECTIVE
+  </text>
+  
+  <!-- Subtitle -->
+  <text x="600" y="330" font-family="'JetBrains Mono', monospace" font-size="32" fill="#94A3B8" text-anchor="middle">
+    Every Contact Leaves a Trace
+  </text>
+  
+  <!-- Description -->
+  <text x="600" y="420" font-family="'JetBrains Mono', monospace" font-size="24" fill="#64748B" text-anchor="middle">
+    Solve mysterious cases in an immersive detective noir experience
+  </text>
+</svg>
