@@ -189,9 +189,9 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
 
   return (
     <>
-      {/* Dark Overlay - 50% opacity */}
+      {/* Dark Overlay - 50% opacity, NO BLUR to keep spotlight area sharp */}
       <div
-        className="fixed inset-0 backdrop-blur-sm"
+        className="fixed inset-0"
         style={{ 
           zIndex: 10000,
           backgroundColor: "rgba(0, 0, 0, 0.5)"
