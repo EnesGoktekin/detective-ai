@@ -107,16 +107,34 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
     // Step-specific positioning
     if (currentStep === 0) {
       // Step 1: Send button (bottom of screen)
-      // Position tooltip ABOVE the button with more gap
-      top = targetRect.top - tooltipHeight - gapFromTarget;
-      left = targetRect.left + targetRect.width / 2 - tooltipWidth / 2;
-      
-      // If tooltip goes off top, position it to the side instead
-      if (top < padding) {
-        top = targetRect.top + targetRect.height / 2 - tooltipHeight / 2;
-        left = isMobile 
-          ? padding // On mobile, align left with padding
-          : targetRect.left - tooltipWidth - gapFromTarget; // On desktop, position to the left
+      if (isMobile) {
+        // On mobile: Position tooltip to the side or above, never overlapping the button
+        const spaceAbove = targetRect.top;
+        const spaceBelow = window.innerHeight - targetRect.bottom;
+        
+        if (spaceAbove > tooltipHeight + gapFromTarget) {
+          // Enough space above - position above
+          top = targetRect.top - tooltipHeight - gapFromTarget;
+          left = padding;
+        } else if (spaceBelow > tooltipHeight + gapFromTarget) {
+          // Not enough space above but space below - position below
+          top = targetRect.bottom + gapFromTarget;
+          left = padding;
+        } else {
+          // No vertical space - position to the side
+          top = Math.max(padding, targetRect.top + targetRect.height / 2 - tooltipHeight / 2);
+          left = padding;
+        }
+      } else {
+        // Desktop: Position tooltip ABOVE the button with more gap
+        top = targetRect.top - tooltipHeight - gapFromTarget;
+        left = targetRect.left + targetRect.width / 2 - tooltipWidth / 2;
+        
+        // If tooltip goes off top, position it to the side instead
+        if (top < padding) {
+          top = targetRect.top + targetRect.height / 2 - tooltipHeight / 2;
+          left = targetRect.left - tooltipWidth - gapFromTarget;
+        }
       }
     } else if (currentStep === 1) {
       // Step 2: Case info (right side on desktop, button on mobile)
@@ -166,34 +184,30 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
     <>
       {/* Dark Overlay - 50% opacity */}
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-        style={{ zIndex: 10000 }}
+        className="fixed inset-0 backdrop-blur-sm"
+        style={{ 
+          zIndex: 10000,
+          backgroundColor: "rgba(0, 0, 0, 0.5)"
+        }}
         onClick={(e) => e.stopPropagation()}
       />
 
-      {/* Spotlight border around target element */}
+      {/* Cutout/Clear area for the target element - makes it bright and visible */}
       <div
-        className="fixed border-4 border-primary rounded-lg pointer-events-none"
-        style={{
-          top: `${targetRect.top - 4}px`,
-          left: `${targetRect.left - 4}px`,
-          width: `${targetRect.width + 8}px`,
-          height: `${targetRect.height + 8}px`,
-          zIndex: 10001,
-          boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.5), 0 0 30px rgba(255, 193, 7, 0.5)"
-        }}
-      />
-
-      {/* Bright area for the target element itself */}
-      <div
-        className="fixed pointer-events-none bg-white/10 rounded-lg"
+        className="fixed pointer-events-none"
         style={{
           top: `${targetRect.top}px`,
           left: `${targetRect.left}px`,
           width: `${targetRect.width}px`,
           height: `${targetRect.height}px`,
-          zIndex: 10000,
-          backdropFilter: "brightness(1.5) contrast(1.2)"
+          zIndex: 10001,
+          backgroundColor: "transparent",
+          boxShadow: `
+            0 0 0 4px rgb(255, 193, 7),
+            0 0 0 9999px rgba(0, 0, 0, 0.5),
+            0 0 40px 4px rgba(255, 193, 7, 0.6)
+          `,
+          borderRadius: "8px"
         }}
       />
 
