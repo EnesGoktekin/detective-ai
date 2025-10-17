@@ -199,7 +199,7 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
         onClick={(e) => e.stopPropagation()}
       />
 
-      {/* Cutout/Clear area for the target element - makes it bright and visible */}
+      {/* Spotlight effect with cutout */}
       <div
         className="fixed pointer-events-none"
         style={{
@@ -215,6 +215,21 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
             0 0 40px 4px rgba(255, 193, 7, 0.6)
           `,
           borderRadius: "8px"
+        }}
+      />
+
+      {/* Bright overlay on target element to make it glow */}
+      <div
+        className="fixed pointer-events-none"
+        style={{
+          top: `${targetRect.top}px`,
+          left: `${targetRect.left}px`,
+          width: `${targetRect.width}px`,
+          height: `${targetRect.height}px`,
+          zIndex: 10001,
+          background: "linear-gradient(135deg, rgba(255, 255, 255, 0.3), rgba(255, 193, 7, 0.2))",
+          borderRadius: "8px",
+          mixBlendMode: "screen"
         }}
       />
 
