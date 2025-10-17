@@ -134,7 +134,7 @@ const GamePage = () => {
                 <Info className="h-4 w-4" />
               </Button>
               <Link to="/">
-                <Button variant="outline" size="icon" aria-label="Back to Cases">
+                <Button variant="outline" size="icon" aria-label="Back to Cases" className="mobile-exit-button">
                   <X className="h-4 w-4" />
                 </Button>
               </Link>
@@ -226,7 +226,7 @@ const GamePage = () => {
                     How to Play
                   </Button>
                   <Link to="/">
-                    <Button variant="outline" size="icon" aria-label="Back to Cases" className="mt-1">
+                    <Button variant="outline" size="icon" aria-label="Back to Cases" className="mt-1 desktop-exit-button">
                       <X className="h-4 w-4" />
                     </Button>
                   </Link>

@@ -47,16 +47,23 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
     const updateTargetPosition = () => {
       const step = steps[currentStep];
       let element: Element | null = null;
+      const isMobile = window.innerWidth < 768;
 
       if (step.target === ".case-info-panel") {
         // Special handling for case info panel
-        const isMobile = window.innerWidth < 768;
         if (isMobile) {
           // On mobile, target the Info button
           element = document.querySelector("button[aria-label='Open Case Info']");
         } else {
           // On desktop, target the entire panel
           element = document.querySelector(".w-full.md\\:w-\\[35\\%\\]");
+        }
+      } else if (step.target === "button[aria-label='Back to Cases']") {
+        // Special handling for Exit button - different locations on mobile vs desktop
+        if (isMobile) {
+          element = document.querySelector(".mobile-exit-button");
+        } else {
+          element = document.querySelector(".desktop-exit-button");
         }
       } else {
         element = document.querySelector(step.target);
