@@ -218,21 +218,6 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
         }}
       />
 
-      {/* Bright overlay on target element to make it glow */}
-      <div
-        className="fixed pointer-events-none"
-        style={{
-          top: `${targetRect.top}px`,
-          left: `${targetRect.left}px`,
-          width: `${targetRect.width}px`,
-          height: `${targetRect.height}px`,
-          zIndex: 10001,
-          background: "linear-gradient(135deg, rgba(255, 255, 255, 0.3), rgba(255, 193, 7, 0.2))",
-          borderRadius: "8px",
-          mixBlendMode: "screen"
-        }}
-      />
-
       {/* Tooltip */}
       <div
         style={getTooltipStyle()}
