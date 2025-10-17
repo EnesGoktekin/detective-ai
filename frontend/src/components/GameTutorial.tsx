@@ -189,32 +189,45 @@ export function GameTutorial({ isOpen, onClose }: GameTutorialProps) {
 
   return (
     <>
-      {/* Dark Overlay - 50% opacity, NO BLUR to keep spotlight area sharp */}
-      <div
-        className="fixed inset-0"
-        style={{ 
-          zIndex: 10000,
-          backgroundColor: "rgba(0, 0, 0, 0.5)"
-        }}
-        onClick={(e) => e.stopPropagation()}
-      />
+      {/* SVG Mask for proper cutout - spotlight area stays 100% bright */}
+      <svg
+        className="fixed inset-0 pointer-events-none"
+        style={{ zIndex: 10000 }}
+      >
+        <defs>
+          <mask id="spotlight-mask">
+            {/* White rectangle covers everything (visible) */}
+            <rect width="100%" height="100%" fill="white" />
+            {/* Black rectangle at target location (invisible/cutout) */}
+            <rect
+              x={targetRect.left}
+              y={targetRect.top}
+              width={targetRect.width}
+              height={targetRect.height}
+              rx="8"
+              fill="black"
+            />
+          </mask>
+        </defs>
+        {/* Dark overlay with mask applied */}
+        <rect
+          width="100%"
+          height="100%"
+          fill="rgba(0, 0, 0, 0.5)"
+          mask="url(#spotlight-mask)"
+        />
+      </svg>
 
-      {/* Spotlight effect with cutout */}
+      {/* Spotlight border around target element */}
       <div
-        className="fixed pointer-events-none"
+        className="fixed pointer-events-none border-4 border-primary rounded-lg"
         style={{
           top: `${targetRect.top}px`,
           left: `${targetRect.left}px`,
           width: `${targetRect.width}px`,
           height: `${targetRect.height}px`,
           zIndex: 10001,
-          backgroundColor: "transparent",
-          boxShadow: `
-            0 0 0 4px rgb(255, 193, 7),
-            0 0 0 9999px rgba(0, 0, 0, 0.5),
-            0 0 40px 4px rgba(255, 193, 7, 0.6)
-          `,
-          borderRadius: "8px"
+          boxShadow: "0 0 30px 4px rgba(255, 193, 7, 0.6)"
         }}
       />
 
