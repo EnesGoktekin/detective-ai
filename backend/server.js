@@ -557,54 +557,53 @@ app.post('/api/sessions', async (req, res) => {
 
 /**
  * GET /api/cases - Fetch case list for frontend menu
- * Queries case_screen table (RLS disabled, public access)
- * Returns only safe menu data: id, title, synopsis, case_number
+ * IMPORTANT: Queries case_screen table (NOT cases table)
+ * case_screen = RLS disabled, public menu data only
+ * cases = RLS enabled, full game data (used in game page)
  */
 app.get('/api/cases', async (req, res) => {
   try {
-    console.log("[CASES-LIST] Attempting to fetch from case_screen table...");
+    console.log("[MENU-API] Fetching from case_screen table...");
     
-    // Query case_screen table (RLS disabled - public data)
-    // Note: Select all columns with * to avoid column name issues
-    const { data: cases, error } = await supabase
+    // Query case_screen table for menu display
+    const { data: caseScreenRows, error: caseScreenError } = await supabase
       .from('case_screen')
       .select('*');
     
-    if (error) {
-      console.error("[CASES-LIST-ERROR] Supabase error:", {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code
+    if (caseScreenError) {
+      console.error("[MENU-API-ERROR] Supabase error from case_screen table:", {
+        message: caseScreenError.message,
+        details: caseScreenError.details,
+        hint: caseScreenError.hint,
+        code: caseScreenError.code
       });
-      throw error;
+      throw caseScreenError;
     }
     
-    // Return empty array if no cases found (not an error)
-    if (!cases || cases.length === 0) {
-      console.log("[CASES-LIST] No cases found in database");
+    // Return empty array if no cases found
+    if (!caseScreenRows || caseScreenRows.length === 0) {
+      console.log("[MENU-API] No cases found in case_screen table");
       return res.json([]);
     }
     
-    console.log(`[CASES-LIST] Fetched ${cases.length} cases`);
-    console.log("[CASES-LIST] Sample case structure:", cases[0]);
+    console.log(`[MENU-API] Success! Fetched ${caseScreenRows.length} cases from case_screen`);
+    console.log("[MENU-API] First row structure:", JSON.stringify(caseScreenRows[0]));
     
-    // Map to frontend format (flexible column name handling)
-    const safeCases = cases.map(c => ({
-      id: c.id,
-      title: c.title,
-      synopsis: c.synopsis,
-      caseNumber: c.case_number || c.casenumber || c.caseNumber || '001'
+    // Map to frontend format
+    const menuCases = caseScreenRows.map(row => ({
+      id: row.id,
+      title: row.title,
+      synopsis: row.synopsis,
+      caseNumber: row.case_number || row.casenumber || row.caseNumber || '001'
     }));
     
-    res.json(safeCases);
+    res.json(menuCases);
     
   } catch (error) {
-    console.error("[CASES-LIST-ERROR] Full error:", error);
-    console.error("[CASES-LIST-ERROR] Error message:", error.message);
-    console.error("[CASES-LIST-ERROR] Error details:", error.details);
+    console.error("[MENU-API-ERROR] Catch block - Full error:", error);
+    console.error("[MENU-API-ERROR] Error message:", error.message);
     res.status(500).json({ 
-      error: 'Failed to load cases',
+      error: 'Failed to load case menu',
       details: error.message || 'Unknown error'
     });
   }
