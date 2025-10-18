@@ -459,11 +459,11 @@ app.post('/api/sessions', async (req, res) => {
     }
 
     // Check if user already has an active session for this case
+    // NOTE: Removed is_solved filter as column doesn't exist in game_sessions table
     const { data: existingSessions, error: fetchError } = await supabase
       .from('game_sessions')
       .select('session_id, game_state, created_at')
       .eq('case_id', caseId)
-      .eq('is_solved', false)
       .order('created_at', { ascending: false })
       .limit(1);
 
