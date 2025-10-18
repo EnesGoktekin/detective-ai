@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabaseClient';
 import type { CaseSummary } from '../types/contracts.ts';
 
 interface UseCasesResult {
@@ -8,62 +9,83 @@ interface UseCasesResult {
 }
 
 /**
- * useCases - Fetch case list from secure backend endpoint
+ * useCases - Fetch case list directly from case_screen table
  * 
- * Uses GET /api/cases which bypasses RLS with SERVICE_ROLE_KEY
- * Relative path works in Vercel (frontend and backend on same domain)
+ * DIRECT SUPABASE QUERY - Bypasses backend completely
+ * case_screen table has RLS DISABLED for public read access
+ * This is the DEFINITIVE FIX for the "Failed to fetch cases" error
  */
 export function useCases(): UseCasesResult {
-  console.log('[useCases] Hook initialized');
+  console.log('[useCases] Hook initialized - DIRECT SUPABASE MODE');
   
   const [data, setData] = useState<CaseSummary[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    console.log('[useCases] useEffect triggered - starting fetch');
+    console.log('[useCases] useEffect triggered - starting DIRECT Supabase query');
     
     console.log('[useCases] Setting isLoading=true, error=null');
     setIsLoading(true);
     setError(null);
     
-    console.log('[useCases] Calling fetch("/api/cases")...');
-    const fetchStartTime = Date.now();
-    
-    // Relative path: Works in Vercel (same domain) and with Vite proxy (dev)
-    fetch('/api/cases')
-      .then((res) => {
-        const fetchDuration = Date.now() - fetchStartTime;
-        console.log(`[useCases] Fetch response received (${fetchDuration}ms):`, {
-          ok: res.ok,
-          status: res.status,
-          statusText: res.statusText,
-          headers: Object.fromEntries(res.headers.entries())
+    const fetchCases = async () => {
+      try {
+        console.log('[useCases] Querying case_screen table directly...');
+        const queryStartTime = Date.now();
+        
+        // Direct Supabase query to case_screen (RLS disabled, public access)
+        const { data: caseScreenData, error: dbError } = await supabase
+          .from('case_screen')
+          .select('id, title, synopsis, case_number')
+          .order('case_number', { ascending: true });
+        
+        const queryDuration = Date.now() - queryStartTime;
+        console.log(`[useCases] Supabase query completed (${queryDuration}ms):`, {
+          hasData: !!caseScreenData,
+          dataLength: caseScreenData?.length || 0,
+          hasError: !!dbError,
+          error: dbError
         });
         
-        if (!res.ok) {
-          console.error('[useCases] Response not OK, throwing error');
-          throw new Error('Failed to fetch cases');
+        if (dbError) {
+          console.error('[useCases] Supabase error:', {
+            message: dbError.message,
+            details: dbError.details,
+            hint: dbError.hint,
+            code: dbError.code
+          });
+          throw new Error(dbError.message || 'Database query failed');
         }
         
-        console.log('[useCases] Parsing JSON...');
-        return res.json();
-      })
-      .then((json) => {
-        console.log('[useCases] JSON parsed successfully:', {
-          dataType: typeof json,
-          isArray: Array.isArray(json),
-          length: Array.isArray(json) ? json.length : 'N/A',
-          data: json
+        if (!caseScreenData || caseScreenData.length === 0) {
+          console.warn('[useCases] No cases found in case_screen table');
+          setData([]);
+          setIsLoading(false);
+          return;
+        }
+        
+        console.log('[useCases] Cases fetched successfully:', {
+          count: caseScreenData.length,
+          cases: caseScreenData
         });
         
-        console.log('[useCases] Setting data state:', json);
-        setData(json);
+        // Map to frontend format
+        const mappedCases: CaseSummary[] = caseScreenData.map(row => ({
+          id: row.id,
+          title: row.title,
+          synopsis: row.synopsis,
+          caseNumber: row.case_number
+        }));
+        
+        console.log('[useCases] Mapped cases:', mappedCases);
+        console.log('[useCases] Setting data state:', mappedCases);
+        setData(mappedCases);
         
         console.log('[useCases] Setting isLoading=false (success)');
         setIsLoading(false);
-      })
-      .catch((err) => {
+        
+      } catch (err: any) {
         console.error('[useCases] Error caught in catch block:', {
           error: err,
           message: err.message,
@@ -77,7 +99,10 @@ export function useCases(): UseCasesResult {
         
         console.log('[useCases] Setting isLoading=false (error)');
         setIsLoading(false);
-      });
+      }
+    };
+    
+    fetchCases();
     
     // Cleanup function
     return () => {
