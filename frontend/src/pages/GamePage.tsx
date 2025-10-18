@@ -187,6 +187,16 @@ const GamePage = () => {
     }
   };
 
+  /**
+   * Exit without deleting session (save progress)
+   * Allows user to resume the game later
+   */
+  const handleExitAndSave = () => {
+    console.log('[GamePage] User chose to exit and save progress');
+    setShowExitDialog(false);
+    navigate('/');
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const text = message.trim();
@@ -490,17 +500,23 @@ const GamePage = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Exit Game?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to exit? Your current progress will be deleted and cannot be recovered.
+              You can exit and save your progress to resume later, or permanently delete this game session.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isExiting}>Cancel</AlertDialogCancel>
             <AlertDialogAction 
+              onClick={handleExitAndSave}
+              disabled={isExiting}
+            >
+              Exit & Save
+            </AlertDialogAction>
+            <AlertDialogAction 
               onClick={handleConfirmExit}
               disabled={isExiting}
               className="bg-destructive hover:bg-destructive/90"
             >
-              {isExiting ? 'Exiting...' : 'Exit & Delete Progress'}
+              {isExiting ? 'Deleting...' : 'Exit & Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
