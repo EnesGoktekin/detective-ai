@@ -1,5 +1,4 @@
 // Vercel Serverless Function wrapper
-// CRITICAL FIX: Import path changed to force cache invalidation
-// Updated: 2025-10-18T16:52:00
-import app from "../backend/server-new.js";
+// Updated: 2025-10-18 - Backend restored to server.js
+import app from "../backend/server.js";
 export default app;
