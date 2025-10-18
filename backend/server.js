@@ -565,10 +565,10 @@ app.get('/api/cases', async (req, res) => {
     console.log("[CASES-LIST] Attempting to fetch from case_screen table...");
     
     // Query case_screen table (RLS disabled - public data)
+    // Note: Select all columns with * to avoid column name issues
     const { data: cases, error } = await supabase
       .from('case_screen')
-      .select('id, title, synopsis, case_number')
-      .order('case_number', { ascending: true });
+      .select('*');
     
     if (error) {
       console.error("[CASES-LIST-ERROR] Supabase error:", {
@@ -587,13 +587,14 @@ app.get('/api/cases', async (req, res) => {
     }
     
     console.log(`[CASES-LIST] Fetched ${cases.length} cases`);
+    console.log("[CASES-LIST] Sample case structure:", cases[0]);
     
-    // Map to frontend format (ensure consistent structure)
+    // Map to frontend format (flexible column name handling)
     const safeCases = cases.map(c => ({
       id: c.id,
       title: c.title,
       synopsis: c.synopsis,
-      caseNumber: c.case_number
+      caseNumber: c.case_number || c.casenumber || c.caseNumber || '001'
     }));
     
     res.json(safeCases);
