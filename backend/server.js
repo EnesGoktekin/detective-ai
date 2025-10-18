@@ -252,8 +252,8 @@ Current user message: ${message}`;
       { role: 'user', parts: [{ text: dynamicGameState }] },
     ];
 
-  // Use gemini-2.5-pro for best reasoning and instruction-following
-  const model = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+  // Model name comes from environment variable (e.g., gemini-2.5-flash)
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
     const response = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
