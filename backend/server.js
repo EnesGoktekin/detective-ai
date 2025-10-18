@@ -778,6 +778,24 @@ app.get('/api/cases/:caseId', async (req, res) => {
       return res.status(404).json({ error: 'Case not found' });
     }
     
+    // Fetch all clues (evidence) for this case
+    const { data: cluesData, error: cluesError } = await supabase
+      .from('clues')
+      .select('id, name, description')
+      .eq('case_id', caseId);
+    
+    if (cluesError) {
+      console.error(`[CASE-DETAIL-ERROR] Failed to fetch clues for case ${caseId}:`, cluesError);
+    }
+    
+    const evidence = (cluesData || []).map(clue => ({
+      id: clue.id,
+      name: clue.name,
+      description: clue.description
+    }));
+    
+    console.log(`[CASE-DETAIL] Fetched ${evidence.length} evidence items for case: ${caseData.title}`);
+    
     // Map to frontend format (NEW DATABASE STRUCTURE)
     const response = {
       id: caseData.id,
@@ -793,6 +811,9 @@ app.get('/api/cases/:caseId', async (req, res) => {
       
       // Suspects list - JSONB column
       suspects: caseData.suspects || [],
+      
+      // Evidence list (from clues table)
+      evidence: evidence,
       
       // Solution (NOT sent to AI, only for accusation check)
       correctAccusation: caseData.correctaccusation || {}

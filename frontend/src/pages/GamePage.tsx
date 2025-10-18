@@ -50,6 +50,22 @@ const GamePage = () => {
   const [showExitDialog, setShowExitDialog] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
 
+  // DEBUG: Log case data structure
+  useEffect(() => {
+    if (data) {
+      console.log('[GamePage-DEBUG] Case data loaded:', data);
+      console.log('[GamePage-DEBUG] Evidence array:', data.evidence);
+      console.log('[GamePage-DEBUG] Evidence count:', data.evidence?.length ?? 0);
+      console.log('[GamePage-DEBUG] Suspects count:', data.suspects?.length ?? 0);
+    }
+  }, [data]);
+
+  // DEBUG: Log unlocked evidence updates
+  useEffect(() => {
+    console.log('[GamePage-DEBUG] Unlocked evidence IDs updated:', unlockedEvidenceIds);
+    console.log('[GamePage-DEBUG] Unlocked count:', unlockedEvidenceIds.length);
+  }, [unlockedEvidenceIds]);
+
   // Show tutorial only for new games (not resumed sessions)
   // Also check localStorage to avoid showing on every new game if user has seen it before
   useEffect(() => {
@@ -467,7 +483,12 @@ const GamePage = () => {
                   onClick={() => setIsAccusationOpen(true)}
                   className="w-full font-jetbrains font-semibold"
                   variant="destructive"
-                  disabled={unlockedEvidenceIds.length !== (data.evidence?.length ?? 0)}
+                  disabled={unlockedEvidenceIds.length !== (data?.evidence?.length ?? 0)}
+                  title={
+                    unlockedEvidenceIds.length !== (data?.evidence?.length ?? 0)
+                      ? `Unlock all evidence first (${unlockedEvidenceIds.length}/${data?.evidence?.length ?? 0})`
+                      : 'Make your accusation'
+                  }
                 >
                   Make Accusation
                 </Button>
@@ -481,7 +502,7 @@ const GamePage = () => {
         open={isAccusationOpen}
         onOpenChange={setIsAccusationOpen}
         suspects={data?.suspects ?? []}
-        evidence={data?.evidence ?? []}
+        evidence={(data?.evidence ?? []).filter(e => unlockedEvidenceIds.includes(e.id))}
         onAccuse={handleAccusation}
       />
 
