@@ -26,6 +26,8 @@ const GamePage = () => {
   // NEW: Session ID for stateful gameplay
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isSessionLoading, setIsSessionLoading] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const sessionAttempted = useRef(false); // Prevent infinite loop
 
   // Check if user has seen tutorial (only on first case ever)
   useEffect(() => {
@@ -40,11 +42,16 @@ const GamePage = () => {
 
   // NEW: Create or retrieve game session when case loads
   useEffect(() => {
-    if (!data || !caseId || sessionId || isSessionLoading) return;
+    // Prevent infinite loop: only attempt once
+    if (!data || !caseId || sessionId || isSessionLoading || sessionAttempted.current) return;
 
     const createSession = async () => {
+      sessionAttempted.current = true; // Mark as attempted
       setIsSessionLoading(true);
+      
       try {
+        console.log('[SESSION] Creating/retrieving session for case:', caseId);
+        
         const res = await fetch('/api/sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -52,6 +59,8 @@ const GamePage = () => {
         });
         
         if (!res.ok) {
+          const errorText = await res.text();
+          console.error('[SESSION] Server error:', errorText);
           throw new Error(`Session creation failed: ${res.status}`);
         }
         
@@ -64,13 +73,10 @@ const GamePage = () => {
           console.log(`[SESSION] Loading ${gameState.chatHistory.length} message(s) from chat history`);
           setMessages(gameState.chatHistory);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('[SESSION] Failed to create session:', err);
-        // Show error to user
-        setMessages(prev => [...prev, {
-          role: 'system',
-          content: '⚠️ Failed to initialize game session. Please refresh the page.'
-        }]);
+        // Store error separately - DON'T add to messages (causes infinite loop!)
+        setSessionError(err.message || 'Failed to initialize game session');
       } finally {
         setIsSessionLoading(false);
       }
@@ -206,6 +212,35 @@ const GamePage = () => {
           
           <ScrollArea className="flex-1 p-6">
             <div ref={chatContainerRef} className="space-y-4 h-[65vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900 pr-4">
+              {/* Show session error if exists */}
+              {sessionError && (
+                <div className="flex justify-center mb-4">
+                  <div className="max-w-[80%] p-4 rounded-lg bg-red-900/40 border border-red-700">
+                    <p className="font-jetbrains text-sm text-red-200">
+                      ⚠️ {sessionError}
+                    </p>
+                    <button 
+                      onClick={() => window.location.reload()} 
+                      className="mt-2 text-xs underline text-red-300 hover:text-red-100"
+                    >
+                      Click here to refresh
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              {/* Show loading state */}
+              {isSessionLoading && messages.length === 0 && (
+                <div className="flex justify-center">
+                  <div className="max-w-[80%] p-4 rounded-lg bg-slate-800">
+                    <p className="font-jetbrains text-sm text-gray-400">
+                      Initializing investigation...
+                    </p>
+                  </div>
+                </div>
+              )}
+              
+              {/* Chat messages */}
               {messages.map((msg, idx) => (
                 <div 
                   key={idx} 
@@ -213,7 +248,7 @@ const GamePage = () => {
                 >
                   <div 
                     className={`max-w-[80%] p-4 rounded-lg mb-4 ${
-                      msg.role === "assistant" 
+                      msg.role === "assistant" || msg.role === "model"
                         ? "bg-slate-800 text-foreground" 
                         : "bg-amber-900/60 text-foreground"
                     }`}
