@@ -76,12 +76,13 @@ const DETECTIVE_SYSTEM_INSTRUCTION = {
   }
 };
 
-// Initialize Supabase client
+// Initialize Supabase client with SERVICE_ROLE_KEY to bypass RLS
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('ÖLÜMCÜL HATA: SUPABASE_URL ve SUPABASE_ANON_KEY environment variables gerekli!');
+  console.error('ÖLÜMCÜL HATA: SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY environment variables gerekli!');
+  console.error('Backend requires SERVICE_ROLE_KEY to bypass RLS and access cases/game_sessions tables.');
   process.exit(1);
 }
 
@@ -702,7 +703,7 @@ USER MESSAGE: ${message}`;
         contents,
         generationConfig: {
           temperature: 0.7,         // Slightly more creative for personality
-          maxOutputTokens: 500,     
+          maxOutputTokens: 2048,    // Increased from 500 to prevent MAX_TOKENS finishReason errors
           topP: 0.95,
           topK: 40
         },
