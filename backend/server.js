@@ -108,6 +108,14 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ============================================
+// RATE LIMITING (Katman 1): In-Memory Storage
+// ============================================
+
+// Global object to store last request times: { sessionId: timestamp }
+// Note: This is in-memory only. For multi-server deployments, use Redis.
+const lastRequestTimestamps = {};
+
+// ============================================
 // GAME LOGIC: Blind Map / Secret Vault Architecture
 // ============================================
 
@@ -855,8 +863,8 @@ app.post('/api/chat', async (req, res) => {
     // Sanitize: Remove leading/trailing whitespace
     const sanitizedMessage = message.trim();
     
-    // Check 1: Minimum length (at least 3 characters)
-    if (sanitizedMessage.length < 3) {
+    // Check 1: Minimum length (at least 2 characters to allow "ne", "ok", etc.)
+    if (sanitizedMessage.length < 2) {
       console.log('[INPUT-VALIDATION] Message too short:', sanitizedMessage);
       return res.status(400).json({ 
         error: "Input is too short or contains no meaningful characters. Please send a valid instruction or question." 
@@ -873,6 +881,31 @@ app.post('/api/chat', async (req, res) => {
     }
     
     console.log('[INPUT-VALIDATION] ✅ Message passed validation:', sanitizedMessage);
+
+    // ============================================================================
+    // LAYER 1: RATE LIMITING (Time-Based Spam Prevention)
+    // ============================================================================
+    
+    const TIME_LIMIT_MS = 5000; // 5 seconds between requests
+    const currentTime = Date.now();
+    const lastRequestTime = lastRequestTimestamps[sessionId];
+    
+    if (lastRequestTime) {
+      const timeSinceLastRequest = currentTime - lastRequestTime;
+      
+      if (timeSinceLastRequest < TIME_LIMIT_MS) {
+        const waitTimeSeconds = Math.ceil((TIME_LIMIT_MS - timeSinceLastRequest) / 1000);
+        console.log(`[RATE-LIMIT] Session ${sessionId} blocked. Wait time: ${waitTimeSeconds}s`);
+        
+        return res.status(429).json({ 
+          error: `Rate limit exceeded. Please wait ${waitTimeSeconds} second${waitTimeSeconds > 1 ? 's' : ''} before sending another message.`
+        });
+      }
+    }
+    
+    // Update timestamp for this session (allow request)
+    lastRequestTimestamps[sessionId] = currentTime;
+    console.log('[RATE-LIMIT] ✅ Request allowed for session:', sessionId);
 
     // Gemini API Key (prefer GEMINI_API_KEY, fallback GOOGLE_API_KEY)
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
