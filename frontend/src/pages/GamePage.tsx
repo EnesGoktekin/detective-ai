@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle 
+} from "@/components/ui/alert-dialog";
 import { Send, X, Info, HelpCircle } from "lucide-react";
 import GameEndDialog from "@/components/GameEndDialog";
 import AccusationDialog from "../components/AccusationDialog";
@@ -12,6 +22,7 @@ import { useCaseDetail } from "../hooks/useCaseDetail";
 
 const GamePage = () => {
   const { caseId } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading, error } = useCaseDetail(caseId ?? "");
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
@@ -28,6 +39,10 @@ const GamePage = () => {
   const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const sessionAttempted = useRef(false); // Prevent infinite loop
+  
+  // Exit confirmation dialog state
+  const [showExitDialog, setShowExitDialog] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
 
   // Check if user has seen tutorial (only on first case ever)
   useEffect(() => {
@@ -127,6 +142,51 @@ const GamePage = () => {
     setIsAccusationOpen(false);
   };
 
+  /**
+   * Handle exit button click
+   * Shows confirmation dialog before deleting session
+   */
+  const handleExitClick = () => {
+    console.log('[GamePage] Exit button clicked - showing confirmation dialog');
+    setShowExitDialog(true);
+  };
+  
+  /**
+   * Confirm exit and delete session
+   */
+  const handleConfirmExit = async () => {
+    try {
+      setShowExitDialog(false);
+      setIsExiting(true);
+      
+      console.log('[GamePage] User confirmed exit - deleting session:', sessionId);
+      
+      if (sessionId) {
+        // Delete current game session
+        const response = await fetch(`/api/sessions/${sessionId}`, {
+          method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to delete session');
+        }
+        
+        console.log('[GamePage] Session deleted successfully');
+      } else {
+        console.warn('[GamePage] No sessionId available to delete');
+      }
+      
+      // Navigate back to main menu
+      navigate('/');
+      
+    } catch (err) {
+      console.error('[GamePage] Error deleting session:', err);
+      setIsExiting(false);
+      alert('Failed to delete game session. Returning to main menu anyway.');
+      navigate('/');
+    }
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const text = message.trim();
@@ -202,11 +262,16 @@ const GamePage = () => {
               <Button variant="outline" size="icon" onClick={() => setIsInfoPanelOpen(true)} aria-label="Open Case Info">
                 <Info className="h-4 w-4" />
               </Button>
-              <Link to="/">
-                <Button variant="outline" size="icon" aria-label="Back to Cases" className="mobile-exit-button">
-                  <X className="h-4 w-4" />
-                </Button>
-              </Link>
+              <Button 
+                variant="outline" 
+                size="icon" 
+                onClick={handleExitClick} 
+                aria-label="Exit Game" 
+                className="mobile-exit-button"
+                disabled={isExiting}
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
           </div>
           
@@ -323,11 +388,16 @@ const GamePage = () => {
                     <HelpCircle className="h-4 w-4 mr-1" />
                     How to Play
                   </Button>
-                  <Link to="/">
-                    <Button variant="outline" size="icon" aria-label="Back to Cases" className="mt-1 desktop-exit-button">
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </Link>
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={handleExitClick} 
+                    aria-label="Exit Game" 
+                    className="mt-1 desktop-exit-button"
+                    disabled={isExiting}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
 
@@ -412,6 +482,28 @@ const GamePage = () => {
         isOpen={showTutorial}
         onClose={() => setShowTutorial(false)}
       />
+
+      {/* Exit Confirmation Dialog */}
+      <AlertDialog open={showExitDialog} onOpenChange={setShowExitDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Exit Game?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to exit? Your current progress will be deleted and cannot be recovered.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isExiting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleConfirmExit}
+              disabled={isExiting}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {isExiting ? 'Exiting...' : 'Exit & Delete Progress'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
