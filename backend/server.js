@@ -2,9 +2,17 @@ import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Load .env from project root
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
-const PORT = 3004;
+const PORT = process.env.PORT || 3004;
 
 // Permanent System Instruction for Detective AI
 const DETECTIVE_SYSTEM_INSTRUCTION = {
@@ -145,7 +153,7 @@ CONTEXT:
 - Victim: ${caseData.victim || 'Unknown'}
 - Scene Description: ${caseData.location || 'Unknown location'}
 
-IMPORTANT: You can ONLY share details about evidence listed in "Unlocked Evidence" above. When the user asks you to investigate something new and it matches an evidence item, describe it and append [EVIDENCE UNLOCKED: evidence-id].`;
+IMPORTANT: You can ONLY share details about evidence listed in "Unlocked Evidence" above. If the user asks about evidence not yet unlocked, guide them to investigate the right location or object.`;
 
   return summary;
 }
@@ -389,8 +397,37 @@ app.post('/api/chat', async (req, res) => {
     console.log("[DEBUG] Case ID:", caseId);
     console.log("[DEBUG] Session ID:", sessionId);
     
-    // Generate concise game state summary (replaces the old full JSON dump)
-    const dynamicGameStateSummary = generateDynamicGameStateSummary(gameState, caseData);
+    // ============================================================================
+    // NEW: INTENT PARSING & GAME STATE UPDATE
+    // ============================================================================
+    
+    // Step 1: Parse user's intent
+    const intent = parseIntent(message);
+    console.log("[INTENT] Parsed:", JSON.stringify(intent));
+    
+    // Step 2: Update game state based on intent
+    const { newState, progressMade, unlockedEvidence } = updateGameState(intent, gameState, caseData);
+    console.log("[GAME-STATE] Progress made:", progressMade);
+    console.log("[GAME-STATE] Unlocked evidence:", unlockedEvidence);
+    
+    // Step 3: Save updated game state to Supabase
+    const { error: updateError } = await supabase
+      .from('game_sessions')
+      .update({
+        game_state: newState,
+        updated_at: new Date().toISOString()
+      })
+      .eq('session_id', sessionId);
+    
+    if (updateError) {
+      console.error("[SESSION-UPDATE-ERROR] Failed to save game state:", updateError);
+      // Don't fail the request, but log the error
+    } else {
+      console.log("[SESSION-UPDATE] Game state saved successfully");
+    }
+    
+    // Step 4: Generate summary with UPDATED game state
+    const dynamicGameStateSummary = generateDynamicGameStateSummary(newState, caseData);
     console.log("[DEBUG] Generated Summary:", dynamicGameStateSummary);
     
     // Prepare the user message with minimal context
@@ -456,84 +493,22 @@ USER MESSAGE: ${message}`;
   console.log("[BACKEND-DEBUG] Raw AI Response String (Gemini):", aiResponse);
 
   const rawText = aiResponse || "";
-    const unlockedEvidenceIds = [];
-    // Find ALL evidence unlock tags and collect their IDs
-    const tagRegex = /\[EVIDENCE UNLOCKED:\s*([^\]]+)\]/gi;
-    let m;
-    while ((m = tagRegex.exec(rawText)) !== null) {
-      const id = String(m[1] || "").trim();
-      if (id && !unlockedEvidenceIds.includes(id)) {
-        unlockedEvidenceIds.push(id);
-      }
-    }
   
-  // Evidence leak detection: Check if AI mentioned evidence without unlocking
-  const evidenceItems = Array.isArray(caseData.evidence) ? caseData.evidence : [];
-  let hasLeak = false;
-  for (const item of evidenceItems) {
-    const evidenceId = item.id || '';
-    const evidenceDesc = (item.description || '').toLowerCase();
-    const evidenceName = (item.name || '').toLowerCase();
-    
-    // If evidence ID is NOT in unlocked list but description/name appears in response
-    if (!unlockedEvidenceIds.includes(evidenceId)) {
-      const textLower = rawText.toLowerCase();
-      // Check for significant matches (avoid false positives on common words)
-      if (evidenceDesc.length > 10 && textLower.includes(evidenceDesc)) {
-        hasLeak = true;
-        console.warn(`[EVIDENCE-LEAK] Detected unauthorized mention of evidence '${evidenceId}': ${evidenceDesc}`);
-        break;
-      }
-      if (evidenceName.length > 5 && textLower.includes(evidenceName)) {
-        hasLeak = true;
-        console.warn(`[EVIDENCE-LEAK] Detected unauthorized mention of evidence '${evidenceId}': ${evidenceName}`);
-        break;
-      }
-    }
-  }
+  // ============================================================================
+  // NEW: Return AI response with evidence unlocked from intent parsing
+  // ============================================================================
   
-  // If leak detected, return safe error response
-  if (hasLeak) {
-    console.error("[EVIDENCE-LEAK] Blocking response due to unauthorized evidence disclosure");
-    return res.json({ 
-      responseText: "Wait, something's off with the signal… 📡 Let me refocus. What specific thing should I check at the scene?", 
-      unlockedEvidenceIds: [] 
-    });
-  }
+  // Evidence is now unlocked by intent parsing (before AI call), not by AI tags
+  // Return the evidence that was unlocked in the game logic phase
+  const cleanedText = rawText.trim();
   
-  // Update game state with newly unlocked evidence
-  if (unlockedEvidenceIds.length > 0) {
-    const currentUnlockedClues = gameState.unlockedClues || [];
-    const newClues = unlockedEvidenceIds.filter(id => !currentUnlockedClues.includes(id));
-    
-    if (newClues.length > 0) {
-      const updatedUnlockedClues = [...currentUnlockedClues, ...newClues];
-      
-      // Update game_sessions table with new unlocked clues
-      const { error: updateError } = await supabase
-        .from('game_sessions')
-        .update({
-          game_state: {
-            ...gameState,
-            unlockedClues: updatedUnlockedClues
-          }
-        })
-        .eq('session_id', sessionId);
-      
-      if (updateError) {
-        console.error("[SESSION-UPDATE-ERROR] Failed to update game state:", updateError);
-        // Don't fail the request, just log the error
-      } else {
-        console.log("[SESSION-UPDATE] Successfully unlocked evidence:", newClues);
-      }
-    }
-  }
+  console.log("[BACKEND-DEBUG] Evidence unlocked (from intent):", unlockedEvidence);
+  console.log("[BACKEND-DEBUG] Final response:", { responseText: cleanedText, unlockedEvidenceIds: unlockedEvidence });
   
-  // Remove all tags from the text before sending to frontend
-    const cleanedText = rawText.replace(/\[EVIDENCE UNLOCKED:\s*([^\]]+)\]/gi, "").trim();
-  console.log("[BACKEND-DEBUG] Extracted Evidence IDs Array:", unlockedEvidenceIds);
-  console.log("[BACKEND-DEBUG] Final object being sent to frontend:", { responseText: cleanedText, unlockedEvidenceIds });
-    res.json({ responseText: cleanedText, unlockedEvidenceIds });
+  res.json({ 
+    responseText: cleanedText, 
+    unlockedEvidenceIds: unlockedEvidence 
+  });
 
   } catch (error) {
     console.error("--- /api/chat İÇİNDE ÖLÜMCÜL HATA ---");
