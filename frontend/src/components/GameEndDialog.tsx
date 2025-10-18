@@ -14,17 +14,48 @@ interface GameEndDialogProps {
   result: { title: string; message: string };
   messagesCount: number;
   timePlayedMs: number;
+  sessionId: string | null;
 }
 
-const GameEndDialog = ({ open, onOpenChange, result, messagesCount, timePlayedMs }: GameEndDialogProps) => {
+const GameEndDialog = ({ open, onOpenChange, result, messagesCount, timePlayedMs, sessionId }: GameEndDialogProps) => {
   const navigate = useNavigate();
 
-  const handleReturnHome = () => {
+  /**
+   * Delete the completed game session
+   * Called before navigation to clean up the database
+   */
+  const deleteSession = async () => {
+    if (!sessionId) {
+      console.warn('[GameEndDialog] No sessionId to delete');
+      return;
+    }
+
+    try {
+      console.log('[GameEndDialog] Deleting completed session:', sessionId);
+      const response = await fetch(`/api/sessions/${sessionId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete session: ${response.statusText}`);
+      }
+
+      console.log('[GameEndDialog] Session deleted successfully');
+    } catch (error) {
+      console.error('[GameEndDialog] Error deleting session:', error);
+      // Continue with navigation even if deletion fails
+      // This prevents trapping the user if there's a network issue
+    }
+  };
+
+  const handleReturnHome = async () => {
+    await deleteSession();
     onOpenChange(false);
     navigate("/");
   };
 
-  const handlePlayAnother = () => {
+  const handlePlayAnother = async () => {
+    await deleteSession();
     onOpenChange(false);
     navigate("/cases");
   };

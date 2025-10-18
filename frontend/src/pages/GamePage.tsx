@@ -474,6 +474,7 @@ const GamePage = () => {
           result={gameResult}
           messagesCount={messages.length}
           timePlayedMs={Date.now() - startTimeMs}
+          sessionId={sessionId}
         />
       )}
 
