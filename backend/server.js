@@ -474,18 +474,58 @@ app.post('/api/sessions', async (req, res) => {
       });
     }
 
-    // Create new session
+    // ============================================================================
+    // NEW: Fetch dynamic starting location and scene description from database
+    // ============================================================================
+    
+    // Fetch case data to get locations JSONB
+    const { data: caseData, error: caseError } = await supabase
+      .from('cases')
+      .select('locations')
+      .eq('id', caseId)
+      .single();
+    
+    if (caseError || !caseData) {
+      console.error("[CASE-FETCH-ERROR]:", caseError);
+      throw new Error(`Failed to fetch case data for caseId: ${caseId}`);
+    }
+    
+    // Extract first location from locations JSONB array
+    const locations = caseData.locations || [];
+    if (locations.length === 0) {
+      throw new Error(`Case ${caseId} has no locations defined`);
+    }
+    
+    const firstLocation = locations[0];
+    const startingLocationId = firstLocation.id;
+    const startingSceneDescription = firstLocation.scene_description;
+    
+    if (!startingLocationId || !startingSceneDescription) {
+      throw new Error(`First location in case ${caseId} is missing id or scene_description`);
+    }
+    
+    console.log(`[SESSION] Starting location: ${startingLocationId}`);
+    console.log(`[SESSION] Scene description: ${startingSceneDescription.substring(0, 50)}...`);
+    
+    // Create dynamic first message from database
+    const firstMessage = {
+      role: 'model',  // 'model' is Gemini's format for AI responses
+      content: startingSceneDescription
+    };
+    
+    // Create new session with dynamic game state
     const { data: newSession, error: createError } = await supabase
       .from('game_sessions')
       .insert({
         user_id: userId || null,
         case_id: caseId,
         game_state: {
-          currentLocation: 'crime_scene',
+          currentLocation: startingLocationId,     // Dynamic from database
           unlockedClues: [],
           interrogatedSuspects: [],
-          knownLocations: ['crime_scene'],
-          stuckCounter: 0
+          knownLocations: [startingLocationId],    // Dynamic from database
+          stuckCounter: 0,
+          chatHistory: [firstMessage]              // NEW: Inject dynamic first message
         }
       })
       .select()
@@ -497,9 +537,11 @@ app.post('/api/sessions', async (req, res) => {
     }
 
     console.log("[SESSION] Created new session:", newSession.session_id);
+    console.log("[SESSION] Initial chat history injected with scene description");
+    
     res.json({
       sessionId: newSession.session_id,
-      gameState: newSession.game_state,
+      gameState: newSession.game_state,  // Includes chatHistory with firstMessage
       isNew: true
     });
 

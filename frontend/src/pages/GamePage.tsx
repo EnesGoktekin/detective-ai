@@ -55,9 +55,15 @@ const GamePage = () => {
           throw new Error(`Session creation failed: ${res.status}`);
         }
         
-        const { sessionId: newSessionId, isNew } = await res.json();
+        const { sessionId: newSessionId, gameState, isNew } = await res.json();
         setSessionId(newSessionId);
         console.log(`[SESSION] ${isNew ? 'Created' : 'Retrieved'} session:`, newSessionId);
+        
+        // NEW: If session has chatHistory, initialize messages with it
+        if (gameState && Array.isArray(gameState.chatHistory) && gameState.chatHistory.length > 0) {
+          console.log(`[SESSION] Loading ${gameState.chatHistory.length} message(s) from chat history`);
+          setMessages(gameState.chatHistory);
+        }
       } catch (err) {
         console.error('[SESSION] Failed to create session:', err);
         // Show error to user
@@ -73,12 +79,15 @@ const GamePage = () => {
     createSession();
   }, [data, caseId, sessionId, isSessionLoading]);
 
-  // Seed the chat with the case's full story once it's loaded
+  // DEPRECATED: Old fullStory logic replaced by dynamic chatHistory from game_sessions
+  // Messages are now initialized from session's chatHistory (see session creation useEffect above)
+  // This useEffect is kept as fallback but should not trigger in normal flow
   useEffect(() => {
-    if (data && data.fullStory) {
+    if (data && data.fullStory && messages.length === 0 && !isSessionLoading) {
+      console.warn("[FALLBACK] Using deprecated fullStory as no chatHistory loaded");
       setMessages([{ role: "assistant", content: data.fullStory }]);
     }
-  }, [data]);
+  }, [data, messages.length, isSessionLoading]);
 
   // Auto-scroll to the newest message whenever messages change
   useEffect(() => {
