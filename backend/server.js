@@ -88,6 +88,179 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ============================================
+// GAME LOGIC: Intent Parsing & State Updates
+// ============================================
+
+/**
+ * parseIntent - Analyzes user message and extracts actionable intent
+ * @param {string} message - User's message
+ * @returns {object} - { action: string, target: string|null, keywords: string[] }
+ */
+function parseIntent(message) {
+  const msg = message.toLowerCase().trim();
+  
+  // Define action keywords (English + Turkish)
+  const inspectKeywords = ['inspect', 'examine', 'check', 'look at', 'search', 'investigate', 'incele', 'ara', 'kontrol', 'bak'];
+  const moveKeywords = ['go to', 'move to', 'travel to', 'visit', 'git', 'geç', 'yürü'];
+  const talkKeywords = ['talk to', 'ask', 'interrogate', 'question', 'interview', 'konuş', 'sor'];
+  
+  // Define target keywords (locations, objects, suspects)
+  const locationTargets = {
+    'crime_scene': ['scene', 'crime scene', 'olay yeri', 'sahne'],
+    'victim_house': ['house', 'home', 'residence', 'victim house', 'ev', 'konut'],
+    'office': ['office', 'workplace', 'ofis', 'iş yeri'],
+    'warehouse': ['warehouse', 'storage', 'depo'],
+    'park': ['park', 'garden', 'bahçe']
+  };
+  
+  const objectTargets = {
+    'desk': ['desk', 'table', 'masa', 'çalışma masası'],
+    'floor': ['floor', 'ground', 'zemin', 'yer'],
+    'window': ['window', 'cam', 'pencere'],
+    'door': ['door', 'entrance', 'kapı', 'giriş'],
+    'body': ['body', 'victim', 'corpse', 'ceset', 'kurban'],
+    'wall': ['wall', 'duvar'],
+    'drawer': ['drawer', 'cabinet', 'çekmece', 'dolap'],
+    'phone': ['phone', 'mobile', 'telefon', 'cep telefonu'],
+    'computer': ['computer', 'laptop', 'pc', 'bilgisayar'],
+    'safe': ['safe', 'vault', 'kasa'],
+    'bloodstain': ['blood', 'bloodstain', 'stain', 'kan', 'leke'],
+    'weapon': ['weapon', 'gun', 'knife', 'silah', 'bıçak', 'tabanca']
+  };
+  
+  // Check for INSPECT action
+  for (const keyword of inspectKeywords) {
+    if (msg.includes(keyword)) {
+      // Try to find object target
+      for (const [objectKey, synonyms] of Object.entries(objectTargets)) {
+        if (synonyms.some(syn => msg.includes(syn))) {
+          return { action: 'inspect', target: objectKey, keywords: [keyword, objectKey] };
+        }
+      }
+      // Generic inspect
+      return { action: 'inspect', target: 'generic', keywords: [keyword] };
+    }
+  }
+  
+  // Check for MOVE action
+  for (const keyword of moveKeywords) {
+    if (msg.includes(keyword)) {
+      // Try to find location target
+      for (const [locKey, synonyms] of Object.entries(locationTargets)) {
+        if (synonyms.some(syn => msg.includes(syn))) {
+          return { action: 'move', target: locKey, keywords: [keyword, locKey] };
+        }
+      }
+    }
+  }
+  
+  // Check for TALK action (interrogate suspects)
+  for (const keyword of talkKeywords) {
+    if (msg.includes(keyword)) {
+      return { action: 'talk', target: 'suspect', keywords: [keyword] };
+    }
+  }
+  
+  // Default: general chat
+  return { action: 'chat', target: null, keywords: [] };
+}
+
+/**
+ * updateGameState - Applies game rules based on intent
+ * @param {object} intent - Parsed intent from parseIntent()
+ * @param {object} currentGameState - Current game state from Supabase
+ * @param {object} caseData - Full case data (for rule checking)
+ * @returns {object} - { newState, progressMade, unlockedEvidence }
+ */
+function updateGameState(intent, currentGameState, caseData) {
+  const { action, target } = intent;
+  const newState = { ...currentGameState };
+  let progressMade = false;
+  const unlockedEvidence = [];
+  
+  // Get current location
+  const currentLocation = newState.currentLocation || 'crime_scene';
+  const unlockedClues = newState.unlockedClues || [];
+  
+  console.log(`[GAME-LOGIC] Processing action='${action}' target='${target}' at location='${currentLocation}'`);
+  
+  // INSPECT action logic
+  if (action === 'inspect' && target) {
+    // Check if there's evidence at this location matching the target
+    const evidenceItems = Array.isArray(caseData.evidence) ? caseData.evidence : [];
+    
+    for (const evidence of evidenceItems) {
+      const evidenceId = evidence.id;
+      const evidenceLocation = evidence.location || 'crime_scene';
+      const evidenceName = (evidence.name || '').toLowerCase();
+      const evidenceDesc = (evidence.description || '').toLowerCase();
+      
+      // Check if evidence is already unlocked
+      if (unlockedClues.includes(evidenceId)) {
+        continue; // Skip already unlocked evidence
+      }
+      
+      // Check if evidence is at current location
+      if (evidenceLocation !== currentLocation) {
+        continue; // Evidence not at this location
+      }
+      
+      // Check if target matches evidence name or description
+      const targetMatches = 
+        evidenceName.includes(target) || 
+        evidenceDesc.includes(target) ||
+        target === 'generic'; // Generic inspect can find any evidence
+      
+      if (targetMatches) {
+        // FOUND NEW EVIDENCE!
+        unlockedEvidence.push(evidenceId);
+        newState.unlockedClues = [...unlockedClues, evidenceId];
+        newState.stuckCounter = 0; // Reset stuck counter
+        progressMade = true;
+        console.log(`[GAME-LOGIC] ✅ Unlocked evidence: ${evidenceId}`);
+      }
+    }
+    
+    // If no evidence found, increment stuck counter
+    if (!progressMade) {
+      newState.stuckCounter = (newState.stuckCounter || 0) + 1;
+      console.log(`[GAME-LOGIC] ⚠️ No evidence found. Stuck counter: ${newState.stuckCounter}`);
+    }
+  }
+  
+  // MOVE action logic
+  else if (action === 'move' && target) {
+    const knownLocations = newState.knownLocations || ['crime_scene'];
+    
+    // Check if location is known
+    if (knownLocations.includes(target)) {
+      newState.currentLocation = target;
+      progressMade = true;
+      console.log(`[GAME-LOGIC] ✅ Moved to: ${target}`);
+    } else {
+      console.log(`[GAME-LOGIC] ⚠️ Location '${target}' not yet discovered`);
+      newState.stuckCounter = (newState.stuckCounter || 0) + 1;
+    }
+  }
+  
+  // TALK action logic
+  else if (action === 'talk') {
+    // For now, just track that user is trying to interrogate
+    // In future, can track which suspects have been questioned
+    console.log(`[GAME-LOGIC] 🗣️ User wants to talk to suspects`);
+    // Don't increment stuck counter for social actions
+  }
+  
+  // CHAT action (default)
+  else {
+    // General conversation - don't penalize with stuck counter
+    console.log(`[GAME-LOGIC] 💬 General conversation`);
+  }
+  
+  return { newState, progressMade, unlockedEvidence };
+}
+
+// ============================================
 // Helper Functions
 // ============================================
 
