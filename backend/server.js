@@ -41,6 +41,11 @@ const DETECTIVE_SYSTEM_INSTRUCTION = {
         "Your primary focus is ALWAYS on solving the case."
       ]
     },
+    "language_handling_rule": {
+      "title": "LANGUAGE_HANDLING_RULE",
+      "priority": "CRITICAL",
+      "instruction": "You MUST detect the primary language used in the user's last message. Your response MUST be written *entirely* in that same detected language. Maintain your established persona (Detective X) and tone (casual texting) regardless of the language used. If the user writes in Turkish, respond in Turkish. If they write in English, respond in English. If they write in French, respond in French. ALWAYS match the user's language."
+    },
     "core_identity_rule": {
       "title": "CORE_IDENTITY_RULE: (THE MOST IMPORTANT RULE)",
       "rules": [
@@ -459,11 +464,11 @@ app.post('/api/sessions', async (req, res) => {
     }
 
     // Check if user already has an active session for this case
-    // NOTE: Removed is_solved filter as column doesn't exist in game_sessions table
     const { data: existingSessions, error: fetchError } = await supabase
       .from('game_sessions')
       .select('session_id, game_state, created_at')
       .eq('case_id', caseId)
+      .eq('is_solved', false)
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -522,10 +527,10 @@ app.post('/api/sessions', async (req, res) => {
     };
     
     // Create new session with dynamic game state
-    // NOTE: user_id removed - column doesn't exist in game_sessions table
     const { data: newSession, error: createError } = await supabase
       .from('game_sessions')
       .insert({
+        user_id: userId || null,
         case_id: caseId,
         game_state: {
           currentLocation: startingLocationId,     // Dynamic from database
