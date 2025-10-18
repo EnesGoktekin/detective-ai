@@ -522,10 +522,10 @@ app.post('/api/sessions', async (req, res) => {
     };
     
     // Create new session with dynamic game state
+    // NOTE: user_id removed - column doesn't exist in game_sessions table
     const { data: newSession, error: createError } = await supabase
       .from('game_sessions')
       .insert({
-        user_id: userId || null,
         case_id: caseId,
         game_state: {
           currentLocation: startingLocationId,     // Dynamic from database
