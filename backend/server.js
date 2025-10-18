@@ -89,133 +89,93 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ============================================
-// GAME LOGIC: Intent Parsing & State Updates
+// GAME LOGIC: Blind Map / Secret Vault Architecture
 // ============================================
 
 /**
- * parseIntent - Analyzes user message and extracts actionable intent
- * TARGET-FIRST ARCHITECTURE: Prioritizes identifying WHAT user is talking about
- * before determining WHAT they want to do. This prevents generic actions from
- * overriding specific targets (e.g., "kitaplığa bak" must detect "kitaplık" first).
+ * parseIntent - NEW BLIND MAP VERSION
+ * Target-first architecture using database-driven interactables from current location
  * 
  * @param {string} message - User's message
- * @param {object} caseData - Optional case data to get dynamic targets (evidence names)
- * @returns {object} - { action: string, target: string|null, keywords: string[] }
+ * @param {object} caseData - Full case data with locations JSONB
+ * @param {object} currentGameState - Current game state with currentLocation
+ * @returns {object} - { action: string, target_id: string|null, keywords: string[] }
  */
-function parseIntent(message, caseData = null) {
+function parseIntent(message, caseData, currentGameState) {
   const msg = message.toLowerCase().trim();
   
+  // Get current location from game state
+  const currentLocationId = currentGameState.currentLocation;
+  if (!currentLocationId) {
+    console.error("[INTENT] No currentLocation in gameState");
+    return { action: 'chat', target_id: null, keywords: [] };
+  }
+  
+  // Find current location data from caseData.locations
+  const locations = Array.isArray(caseData.locations) ? caseData.locations : [];
+  const currentLocationData = locations.find(loc => loc.id === currentLocationId);
+  
+  if (!currentLocationData) {
+    console.error(`[INTENT] Location '${currentLocationId}' not found in caseData.locations`);
+    return { action: 'chat', target_id: null, keywords: [] };
+  }
+  
   // ============================================================================
-  // PHASE 1: TARGET DETECTION (Priority)
+  // PHASE 1: INSPECT - Check interactables at current location (TARGET-FIRST)
   // ============================================================================
   
-  // Define inspectable object targets (English + Turkish synonyms)
-  const objectTargets = {
-    // Furniture & Room Objects
-    'desk': ['desk', 'table', 'masa', 'çalışma masası', 'yazı masası'],
-    'bookshelf': ['bookshelf', 'shelf', 'bookcase', 'kitaplık', 'raf', 'kitap rafı'],
-    'drawer': ['drawer', 'cabinet', 'çekmece', 'dolap', 'çekmeceler'],
-    'safe': ['safe', 'vault', 'kasa', 'çelik kasa'],
-    'computer': ['computer', 'laptop', 'pc', 'bilgisayar', 'dizüstü'],
-    'phone': ['phone', 'mobile', 'cell', 'telefon', 'cep telefonu', 'mobil'],
-    
-    // Crime Scene Objects
-    'body': ['body', 'victim', 'corpse', 'ceset', 'kurban', 'ölü'],
-    'weapon': ['weapon', 'gun', 'knife', 'pistol', 'silah', 'bıçak', 'tabanca'],
-    'bloodstain': ['blood', 'bloodstain', 'stain', 'kan', 'kan lekesi', 'leke'],
-    
-    // Room Features
-    'window': ['window', 'cam', 'pencere'],
-    'door': ['door', 'entrance', 'kapı', 'giriş'],
-    'wall': ['wall', 'duvar'],
-    'floor': ['floor', 'ground', 'zemin', 'yer', 'döşeme'],
-    'ceiling': ['ceiling', 'tavan'],
-    
-    // Documents & Items
-    'notebook': ['notebook', 'journal', 'diary', 'defter', 'not defteri', 'günlük'],
-    'letter': ['letter', 'note', 'mektup', 'not', 'yazı'],
-    'photo': ['photo', 'picture', 'photograph', 'fotoğraf', 'resim'],
-    'document': ['document', 'file', 'paper', 'belge', 'dosya', 'evrak'],
-    
-    // Bottles & Containers
-    'bottle': ['bottle', 'flask', 'şişe', 'viski şişesi', 'whiskey bottle'],
-    'glass': ['glass', 'cup', 'bardak', 'kadeh'],
-    'ashtray': ['ashtray', 'kül tablası'],
-    
-    // Electronics
-    'camera': ['camera', 'cctv', 'kamera', 'güvenlik kamerası'],
-    'recorder': ['recorder', 'recording', 'kayıt cihazı', 'kaydedici'],
-    
-    // Clothing & Personal Items
-    'coat': ['coat', 'jacket', 'palto', 'ceket', 'manto'],
-    'bag': ['bag', 'purse', 'briefcase', 'çanta', 'valiz'],
-    'wallet': ['wallet', 'cüzdan'],
-    'keys': ['keys', 'key', 'anahtar', 'anahtarlar']
-  };
+  const interactables = Array.isArray(currentLocationData.interactables) 
+    ? currentLocationData.interactables 
+    : [];
   
-  // Check for OBJECT TARGETS first (highest priority)
-  for (const [targetKey, synonyms] of Object.entries(objectTargets)) {
-    for (const synonym of synonyms) {
-      // Use word boundary check to avoid false positives
-      const regex = new RegExp(`\\b${synonym}\\b`, 'i');
+  console.log(`[INTENT] Current location: ${currentLocationId}, Interactables: ${JSON.stringify(interactables.map(i => i.id))}`);
+  
+  // Scan message for interactable keywords
+  for (const interactable of interactables) {
+    const interactableId = interactable.id;
+    const keywords = Array.isArray(interactable.keywords) ? interactable.keywords : [];
+    
+    // Check if any keyword appears in message
+    for (const keyword of keywords) {
+      const regex = new RegExp(`\\b${keyword}\\b`, 'i');
       if (regex.test(msg)) {
-        console.log(`[INTENT] 🎯 Target detected: "${targetKey}" (matched: "${synonym}")`);
-        return { action: 'inspect', target: targetKey, keywords: [synonym] };
-      }
-    }
-  }
-  
-  // If caseData provided, check evidence names dynamically
-  if (caseData && Array.isArray(caseData.evidence)) {
-    for (const evidence of caseData.evidence) {
-      const evidenceName = (evidence.name || '').toLowerCase();
-      const evidenceId = evidence.id;
-      
-      // Check if evidence name appears in message
-      if (evidenceName.length > 3 && msg.includes(evidenceName)) {
-        console.log(`[INTENT] 🎯 Dynamic target detected: "${evidenceId}" (matched: "${evidenceName}")`);
-        return { action: 'inspect', target: evidenceId, keywords: [evidenceName] };
+        console.log(`[INTENT] 🎯 Interactable detected: "${interactableId}" (matched: "${keyword}")`);
+        return { action: 'inspect', target_id: interactableId, keywords: [keyword] };
       }
     }
   }
   
   // ============================================================================
-  // PHASE 2: LOCATION TARGETS (Move Actions)
+  // PHASE 2: MOVE - Check if user wants to move to another location
   // ============================================================================
   
-  const locationTargets = {
-    'crime_scene': ['scene', 'crime scene', 'olay yeri', 'sahne', 'suç mahalli'],
-    'victim_house': ['house', 'home', 'residence', 'victim house', 'ev', 'konut', 'kurban evi'],
-    'office': ['office', 'workplace', 'ofis', 'iş yeri', 'büro'],
-    'warehouse': ['warehouse', 'storage', 'depo', 'ambar'],
-    'park': ['park', 'garden', 'bahçe']
-  };
-  
-  // Define move keywords
   const moveKeywords = ['go to', 'move to', 'travel to', 'visit', 'git', 'geç', 'yürü', 'gidelim', 'gidiyorum'];
-  
-  // Check if user wants to MOVE to a location
   const hasMoveIntent = moveKeywords.some(keyword => msg.includes(keyword));
   
-  if (hasMoveIntent) {
-    for (const [locKey, synonyms] of Object.entries(locationTargets)) {
-      if (synonyms.some(syn => msg.includes(syn))) {
-        console.log(`[INTENT] 🚶 Move action detected to: "${locKey}"`);
-        return { action: 'move', target: locKey, keywords: ['move', locKey] };
+  if (hasMoveIntent || msg.includes('git') || msg.includes('geç')) {
+    // Scan all locations for keyword matches
+    for (const location of locations) {
+      const locationId = location.id;
+      const locationKeywords = Array.isArray(location.keywords) ? location.keywords : [];
+      
+      for (const keyword of locationKeywords) {
+        if (msg.includes(keyword.toLowerCase())) {
+          console.log(`[INTENT] 🚶 Move detected to: "${locationId}" (matched: "${keyword}")`);
+          return { action: 'move', target_id: locationId, keywords: [keyword] };
+        }
       }
     }
   }
   
   // ============================================================================
-  // PHASE 3: TALK/INTERROGATE ACTIONS
+  // PHASE 3: TALK/INTERROGATE (Future implementation)
   // ============================================================================
   
-  const talkKeywords = ['talk to', 'speak to', 'ask', 'interrogate', 'question', 'interview', 'konuş', 'sor', 'sorgula'];
-  
+  const talkKeywords = ['talk', 'speak', 'ask', 'interrogate', 'question', 'interview', 'konuş', 'sor', 'sorgula'];
   for (const keyword of talkKeywords) {
     if (msg.includes(keyword)) {
       console.log(`[INTENT] 🗣️ Talk action detected`);
-      return { action: 'talk', target: 'suspect', keywords: [keyword] };
+      return { action: 'talk', target_id: 'suspect', keywords: [keyword] };
     }
   }
   
@@ -223,13 +183,144 @@ function parseIntent(message, caseData = null) {
   // PHASE 4: FALLBACK - General Chat
   // ============================================================================
   
-  // If no target or specific action detected, treat as general conversation
   console.log(`[INTENT] 💬 No specific target/action - treating as chat`);
-  return { action: 'chat', target: null, keywords: [] };
+  return { action: 'chat', target_id: null, keywords: [] };
 }
 
 /**
- * updateGameState - Applies game rules based on intent
+ * updateGameState - NEW SECRET VAULT VERSION
+ * Applies game rules using clues table (Secret Vault) instead of static caseData
+ * 
+ * @param {object} intent - Parsed intent from parseIntent()
+ * @param {object} currentGameState - Current game state from Supabase
+ * @param {object} caseData - Full case data (locations, etc.)
+ * @returns {object} - { newState, progressMade, newClues }
+ */
+async function updateGameState(intent, currentGameState, caseData) {
+  const { action, target_id } = intent;
+  const newState = { ...currentGameState };
+  let progressMade = false;
+  const newClues = [];  // Will contain actual clue objects from database
+  
+  // Get current location
+  const currentLocation = newState.currentLocation;
+  const unlockedClues = newState.unlockedClues || [];
+  
+  console.log(`[GAME-LOGIC] Processing action='${action}' target='${target_id}' at location='${currentLocation}'`);
+  
+  // ============================================================================
+  // INSPECT ACTION: Query clues table (Secret Vault)
+  // ============================================================================
+  
+  if (action === 'inspect' && target_id) {
+    // Query clues table for this object
+    const { data: cluesData, error: cluesError } = await supabase
+      .from('clues')
+      .select('*')
+      .eq('linked_object_id', target_id)
+      .eq('case_id', caseData.id);
+    
+    if (cluesError) {
+      console.error(`[GAME-LOGIC] Failed to query clues for ${target_id}:`, cluesError);
+      // Treat as Red Herring (valid investigation, no clues)
+      progressMade = true;
+      newState.stuckCounter = 0;
+      return { newState, progressMade, newClues };
+    }
+    
+    const clues = cluesData || [];
+    console.log(`[GAME-LOGIC] Found ${clues.length} clue(s) for object '${target_id}'`);
+    
+    if (clues.length === 0) {
+      // RED HERRING: No clues, but valid investigation
+      progressMade = true;
+      newState.stuckCounter = 0;
+      console.log(`[GAME-LOGIC] ✅ Red Herring - Valid investigation, no clues found`);
+      return { newState, progressMade, newClues };
+    }
+    
+    // Check which clues are new
+    for (const clue of clues) {
+      const clueId = clue.id;
+      
+      if (!unlockedClues.includes(clueId)) {
+        // NEW CLUE FOUND!
+        newClues.push(clue);  // Store full clue object with description
+        newState.unlockedClues = [...unlockedClues, clueId];
+        progressMade = true;
+        newState.stuckCounter = 0;
+        console.log(`[GAME-LOGIC] ✅ New clue unlocked: ${clueId} - ${clue.name}`);
+      } else {
+        console.log(`[GAME-LOGIC] ⏭️ Clue ${clueId} already unlocked`);
+      }
+    }
+    
+    // If all clues already unlocked, still consider it progress (not stuck)
+    if (newClues.length === 0 && clues.length > 0) {
+      progressMade = true;  // Already investigated, but not stuck
+      newState.stuckCounter = 0;
+    }
+    
+    return { newState, progressMade, newClues };
+  }
+  
+  // ============================================================================
+  // MOVE ACTION: Change location
+  // ============================================================================
+  
+  else if (action === 'move' && target_id) {
+    const knownLocations = newState.knownLocations || [];
+    
+    // Check if location is known
+    if (knownLocations.includes(target_id)) {
+      newState.currentLocation = target_id;
+      progressMade = true;
+      newState.stuckCounter = 0;
+      console.log(`[GAME-LOGIC] ✅ Moved to: ${target_id}`);
+      
+      // Get scene_description from new location
+      const locations = Array.isArray(caseData.locations) ? caseData.locations : [];
+      const newLocationData = locations.find(loc => loc.id === target_id);
+      
+      if (newLocationData && newLocationData.scene_description) {
+        // Add location change message to newClues for AI context
+        newClues.push({
+          type: 'location_change',
+          description: newLocationData.scene_description
+        });
+      }
+    } else {
+      console.log(`[GAME-LOGIC] ⚠️ Location '${target_id}' not yet discovered`);
+      newState.stuckCounter = (newState.stuckCounter || 0) + 1;
+    }
+    
+    return { newState, progressMade, newClues };
+  }
+  
+  // ============================================================================
+  // TALK ACTION: Interrogation (Future)
+  // ============================================================================
+  
+  else if (action === 'talk') {
+    console.log(`[GAME-LOGIC] 🗣️ Talk action - future implementation`);
+    progressMade = false;  // Not yet implemented
+    return { newState, progressMade, newClues };
+  }
+  
+  // ============================================================================
+  // CHAT ACTION: General conversation
+  // ============================================================================
+  
+  else {
+    console.log(`[GAME-LOGIC] 💬 General conversation - incrementing stuck counter`);
+    newState.stuckCounter = (newState.stuckCounter || 0) + 1;
+    progressMade = false;
+    return { newState, progressMade, newClues };
+  }
+}
+
+/**
+ * OLD updateGameState - Applies game rules based on intent (DEPRECATED - SEE NEW VERSION ABOVE)
  * @param {object} intent - Parsed intent from parseIntent()
  * @param {object} currentGameState - Current game state from Supabase
  * @param {object} caseData - Full case data (for rule checking)
