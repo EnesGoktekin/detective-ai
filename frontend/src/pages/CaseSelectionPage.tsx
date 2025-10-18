@@ -96,8 +96,8 @@ const CaseSelectionPage = () => {
       const { sessionId } = await response.json();
       console.log(`[CaseSelection] New session created: ${sessionId}`);
       
-      // Navigate to game page
-      navigate(`/game/${caseId}`);
+      // Navigate to game page with isNewGame flag
+      navigate(`/game/${caseId}`, { state: { isNewGame: true } });
     } catch (err) {
       console.error('[CaseSelection] Error starting new game:', err);
       setIsProcessing(false);
@@ -114,8 +114,8 @@ const CaseSelectionPage = () => {
     console.log(`[CaseSelection] Resuming session: ${existingSessionId}`);
     setShowResumeDialog(false);
     
-    // Navigate to game page with existing session
-    navigate(`/game/${selectedCase.id}`);
+    // Navigate to game page with isNewGame flag set to false (resuming)
+    navigate(`/game/${selectedCase.id}`, { state: { isNewGame: false } });
   };
   
   /**

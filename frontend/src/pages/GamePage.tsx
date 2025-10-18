@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -23,7 +23,13 @@ import { useCaseDetail } from "../hooks/useCaseDetail";
 const GamePage = () => {
   const { caseId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { data, isLoading, error } = useCaseDetail(caseId ?? "");
+  
+  // Check if this is a new game (from navigation state)
+  // Default to true for direct URL access
+  const isNewGame = location.state?.isNewGame ?? true;
+  
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
   const [gameResult, setGameResult] = useState<null | { title: string; message: string }>(null);
@@ -44,16 +50,20 @@ const GamePage = () => {
   const [showExitDialog, setShowExitDialog] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
 
-  // Check if user has seen tutorial (only on first case ever)
+  // Show tutorial only for new games (not resumed sessions)
+  // Also check localStorage to avoid showing on every new game if user has seen it before
   useEffect(() => {
-    const hasSeenTutorial = localStorage.getItem("hasSeenTutorial");
-    if (!hasSeenTutorial && data) {
-      // Delay to ensure UI is fully rendered
-      setTimeout(() => {
-        setShowTutorial(true);
-      }, 1000);
+    // Only show tutorial if this is a new game AND user hasn't seen it before
+    if (isNewGame && data) {
+      const hasSeenTutorial = localStorage.getItem("hasSeenTutorial");
+      if (!hasSeenTutorial) {
+        // Delay to ensure UI is fully rendered
+        setTimeout(() => {
+          setShowTutorial(true);
+        }, 1000);
+      }
     }
-  }, [data]);
+  }, [isNewGame, data]);
 
   // NEW: Create or retrieve game session when case loads
   useEffect(() => {
