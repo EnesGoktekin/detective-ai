@@ -419,9 +419,8 @@ const GamePage = () => {
               <Input
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder={cooldownTime > 0 ? `Wait ${cooldownTime}s...` : "Type your question..."}
+                placeholder="Type your question..."
                 className="font-jetbrains"
-                disabled={cooldownTime > 0}
               />
               <Button 
                 type="submit" 
@@ -619,14 +618,14 @@ const GamePage = () => {
       <AlertDialog open={modalErrorMessage !== null} onOpenChange={(open) => !open && setModalErrorMessage(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Geçersiz Giriş</AlertDialogTitle>
+            <AlertDialogTitle>Invalid Input</AlertDialogTitle>
             <AlertDialogDescription className="text-base">
               {modalErrorMessage}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogAction onClick={() => setModalErrorMessage(null)}>
-              Anladım
+              Got It
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
