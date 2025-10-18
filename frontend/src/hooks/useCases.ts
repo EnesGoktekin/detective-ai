@@ -11,7 +11,7 @@ interface UseCasesResult {
  * useCases - Fetch case list from secure backend endpoint
  * 
  * Uses GET /api/cases which bypasses RLS with SERVICE_ROLE_KEY
- * Environment variable VITE_API_URL should be set to backend URL in production
+ * Relative path works in Vercel (frontend and backend on same domain)
  */
 export function useCases(): UseCasesResult {
   const [data, setData] = useState<CaseSummary[] | null>(null);
@@ -22,10 +22,8 @@ export function useCases(): UseCasesResult {
     setIsLoading(true);
     setError(null);
     
-    // Use environment variable for backend URL (works in dev and production)
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3004';
-    
-    fetch(`${API_URL}/api/cases`)
+    // Relative path: Works in Vercel (same domain) and with Vite proxy (dev)
+    fetch('/api/cases')
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch cases');
         return res.json();
