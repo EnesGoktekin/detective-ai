@@ -555,6 +555,48 @@ app.post('/api/sessions', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/cases - Fetch case list for frontend menu
+ * Uses SERVICE_ROLE_KEY to bypass RLS (no RLS policy needed)
+ * Returns only safe columns: id, title, synopsis
+ */
+app.get('/api/cases', async (req, res) => {
+  try {
+    // Query cases table with SERVICE_ROLE_KEY (bypasses RLS)
+    const { data: cases, error } = await supabase
+      .from('cases')
+      .select('id, title, synopsis, case_number')
+      .order('case_number', { ascending: true });
+    
+    if (error) {
+      console.error("[CASES-LIST-ERROR]:", error);
+      throw error;
+    }
+    
+    // Return empty array if no cases found (not an error)
+    if (!cases || cases.length === 0) {
+      console.log("[CASES-LIST] No cases found in database");
+      return res.json([]);
+    }
+    
+    console.log(`[CASES-LIST] Fetched ${cases.length} cases`);
+    
+    // Map to frontend format (ensure consistent structure)
+    const safeCases = cases.map(c => ({
+      id: c.id,
+      title: c.title,
+      synopsis: c.synopsis,
+      caseNumber: c.case_number
+    }));
+    
+    res.json(safeCases);
+    
+  } catch (error) {
+    console.error("[CASES-LIST-ERROR]:", error);
+    res.status(500).json({ error: 'Failed to fetch cases. Please try again.' });
+  }
+});
+
 app.get('/api/cases/:caseId', async (req, res) => {
   try {
     const { caseId } = req.params;
