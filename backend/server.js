@@ -1,3 +1,7 @@
+/**
+ * Detective AI - Backend Server
+ * Last Update: 2025-10-18 16:45 - Fixed case_screen table query (cache bust)
+ */
 import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
