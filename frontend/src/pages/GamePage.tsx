@@ -22,6 +22,10 @@ const GamePage = () => {
   const [startTimeMs] = useState<number>(() => Date.now());
   const [showTutorial, setShowTutorial] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  
+  // NEW: Session ID for stateful gameplay
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isSessionLoading, setIsSessionLoading] = useState(false);
 
   // Check if user has seen tutorial (only on first case ever)
   useEffect(() => {
@@ -33,6 +37,41 @@ const GamePage = () => {
       }, 1000);
     }
   }, [data]);
+
+  // NEW: Create or retrieve game session when case loads
+  useEffect(() => {
+    if (!data || !caseId || sessionId || isSessionLoading) return;
+
+    const createSession = async () => {
+      setIsSessionLoading(true);
+      try {
+        const res = await fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ caseId })
+        });
+        
+        if (!res.ok) {
+          throw new Error(`Session creation failed: ${res.status}`);
+        }
+        
+        const { sessionId: newSessionId, isNew } = await res.json();
+        setSessionId(newSessionId);
+        console.log(`[SESSION] ${isNew ? 'Created' : 'Retrieved'} session:`, newSessionId);
+      } catch (err) {
+        console.error('[SESSION] Failed to create session:', err);
+        // Show error to user
+        setMessages(prev => [...prev, {
+          role: 'system',
+          content: '⚠️ Failed to initialize game session. Please refresh the page.'
+        }]);
+      } finally {
+        setIsSessionLoading(false);
+      }
+    };
+
+    createSession();
+  }, [data, caseId, sessionId, isSessionLoading]);
 
   // Seed the chat with the case's full story once it's loaded
   useEffect(() => {
@@ -78,15 +117,30 @@ const GamePage = () => {
     const text = message.trim();
     if (!text) return;
 
+    // NEW: Ensure session exists before sending message
+    if (!sessionId) {
+      console.error('[CHAT] No session ID available - session may still be loading');
+      setMessages(prev => [...prev, {
+        role: 'system',
+        content: '⚠️ Game session not ready. Please wait a moment and try again.'
+      }]);
+      return;
+    }
+
     // Append the user's message and clear the input
     setMessages(prev => [...prev, { role: "user", content: text }]);
     setMessage("");
 
     try {
-  const res = await fetch("/api/chat", {
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, caseId: caseId, chatHistory: messages }),
+        body: JSON.stringify({ 
+          message: text, 
+          caseId: caseId, 
+          chatHistory: messages,
+          sessionId  // NEW: Required by stateful backend
+        }),
       });
       const payload = await res.json().catch(() => ({ responseText: "" }));
       console.log('[FRONTEND-DEBUG] Full payload received from backend:', payload);
