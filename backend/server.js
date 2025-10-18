@@ -464,11 +464,11 @@ app.post('/api/sessions', async (req, res) => {
     }
 
     // Check if user already has an active session for this case
+    // NOTE: Removed is_solved filter - column doesn't exist in game_sessions table
     const { data: existingSessions, error: fetchError } = await supabase
       .from('game_sessions')
       .select('session_id, game_state, created_at')
       .eq('case_id', caseId)
-      .eq('is_solved', false)
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -527,10 +527,10 @@ app.post('/api/sessions', async (req, res) => {
     };
     
     // Create new session with dynamic game state
+    // NOTE: user_id removed - column doesn't exist in game_sessions table
     const { data: newSession, error: createError } = await supabase
       .from('game_sessions')
       .insert({
-        user_id: userId || null,
         case_id: caseId,
         game_state: {
           currentLocation: startingLocationId,     // Dynamic from database
