@@ -49,6 +49,12 @@ const GamePage = () => {
   // Exit confirmation dialog state
   const [showExitDialog, setShowExitDialog] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
+  
+  // Rate limiting: Cooldown timer (in seconds)
+  const [cooldownTime, setCooldownTime] = useState(0);
+  
+  // Input validation error modal
+  const [modalErrorMessage, setModalErrorMessage] = useState<string | null>(null);
 
   // DEBUG: Log case data structure
   useEffect(() => {
@@ -65,6 +71,23 @@ const GamePage = () => {
     console.log('[GamePage-DEBUG] Unlocked evidence IDs updated:', unlockedEvidenceIds);
     console.log('[GamePage-DEBUG] Unlocked count:', unlockedEvidenceIds.length);
   }, [unlockedEvidenceIds]);
+
+  // Rate limiting: Countdown timer
+  useEffect(() => {
+    if (cooldownTime <= 0) return;
+
+    const timer = setInterval(() => {
+      setCooldownTime((prev) => {
+        if (prev <= 1) {
+          console.log('[RATE-LIMIT] Cooldown finished');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [cooldownTime]);
 
   // Show tutorial only for new games (not resumed sessions)
   // Also check localStorage to avoid showing on every new game if user has seen it before
@@ -228,6 +251,12 @@ const GamePage = () => {
     const text = message.trim();
     if (!text) return;
 
+    // Rate limiting check: Prevent sending if cooldown is active
+    if (cooldownTime > 0) {
+      console.log('[RATE-LIMIT] Message blocked - cooldown active:', cooldownTime);
+      return;
+    }
+
     // NEW: Ensure session exists before sending message
     if (!sessionId) {
       console.error('[CHAT] No session ID available - session may still be loading');
@@ -237,6 +266,10 @@ const GamePage = () => {
       }]);
       return;
     }
+
+    // Set cooldown timer (5 seconds) before sending
+    setCooldownTime(5);
+    console.log('[RATE-LIMIT] Cooldown started: 5 seconds');
 
     // Append the user's message and clear the input
     setMessages(prev => [...prev, { role: "user", content: text }]);
@@ -253,6 +286,26 @@ const GamePage = () => {
           sessionId  // NEW: Required by stateful backend
         }),
       });
+      
+      // Handle input validation error (400)
+      if (res.status === 400) {
+        const errorData = await res.json().catch(() => ({ error: 'Invalid input' }));
+        console.error('[INPUT-VALIDATION] Backend validation error:', errorData.error);
+        setModalErrorMessage(errorData.error || 'Invalid input. Please check your message.');
+        return;
+      }
+      
+      // Handle rate limit error (429)
+      if (res.status === 429) {
+        const errorData = await res.json().catch(() => ({ error: 'Rate limit exceeded' }));
+        console.error('[RATE-LIMIT] Backend rate limit hit:', errorData.error);
+        setMessages(prev => [...prev, { 
+          role: "system", 
+          content: `⚠️ ${errorData.error || 'Please wait before sending another message.'}` 
+        }]);
+        return; // Don't reset cooldown - let it run out
+      }
+      
       const payload = await res.json().catch(() => ({ responseText: "" }));
       console.log('[FRONTEND-DEBUG] Full payload received from backend:', payload);
       console.log('[FRONTEND-DEBUG] Payload received from backend:', payload);
@@ -366,11 +419,20 @@ const GamePage = () => {
               <Input
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Type your question..."
+                placeholder={cooldownTime > 0 ? `Wait ${cooldownTime}s...` : "Type your question..."}
                 className="font-jetbrains"
+                disabled={cooldownTime > 0}
               />
-              <Button type="submit" size="icon">
-                <Send className="h-4 w-4" />
+              <Button 
+                type="submit" 
+                size={cooldownTime > 0 ? "default" : "icon"}
+                disabled={!message.trim() || cooldownTime > 0}
+              >
+                {cooldownTime > 0 ? (
+                  `Wait (${cooldownTime}s)`
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
               </Button>
             </form>
           </div>
@@ -548,6 +610,23 @@ const GamePage = () => {
               className="bg-destructive hover:bg-destructive/90"
             >
               {isExiting ? 'Deleting...' : 'Exit & Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Input Validation Error Modal */}
+      <AlertDialog open={modalErrorMessage !== null} onOpenChange={(open) => !open && setModalErrorMessage(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Geçersiz Giriş</AlertDialogTitle>
+            <AlertDialogDescription className="text-base">
+              {modalErrorMessage}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setModalErrorMessage(null)}>
+              Anladım
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
