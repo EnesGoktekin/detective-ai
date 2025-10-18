@@ -79,6 +79,77 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// ============================================
+// Helper Functions
+// ============================================
+
+/**
+ * Generate a concise natural-language summary of the game state for the AI.
+ * This replaces the old practice of sending the entire caseData JSON.
+ * 
+ * @param {Object} gameState - The JSONB game state from game_sessions table
+ * @param {Object} caseData - Full case data (only used for display name lookups)
+ * @returns {string} - Natural language summary for AI context
+ */
+function generateDynamicGameStateSummary(gameState, caseData) {
+  const {
+    currentLocation = 'crime_scene',
+    unlockedClues = [],
+    interrogatedSuspects = [],
+    knownLocations = ['crime_scene'],
+    stuckCounter = 0
+  } = gameState;
+
+  // Build evidence lookup map (ID -> display name)
+  const evidenceMap = {};
+  if (Array.isArray(caseData.evidence)) {
+    caseData.evidence.forEach(item => {
+      evidenceMap[item.id] = item.name || item.id;
+    });
+  }
+
+  // Build suspect lookup map (ID -> display name)
+  const suspectMap = {};
+  if (Array.isArray(caseData.suspects)) {
+    caseData.suspects.forEach(suspect => {
+      suspectMap[suspect.id] = suspect.name || suspect.id;
+    });
+  }
+
+  // Map clue IDs to display names
+  const unlockedClueNames = unlockedClues
+    .map(id => evidenceMap[id] || id)
+    .join(', ') || 'None yet';
+
+  // Map suspect IDs to display names
+  const interrogatedSuspectNames = interrogatedSuspects
+    .map(id => suspectMap[id] || id)
+    .join(', ') || 'None so far';
+
+  // Get location display name
+  const locationName = currentLocation
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+
+  // Build the summary
+  const summary = `[DYNAMIC_GAME_STATE]
+Current Location: ${locationName}
+Unlocked Evidence: ${unlockedClueNames}
+Suspects Interrogated: ${interrogatedSuspectNames}
+Known Locations: ${knownLocations.join(', ')}
+Investigation Progress: ${unlockedClues.length} clue(s) discovered
+
+CONTEXT:
+- Case: ${caseData.title || 'Unknown Case'}
+- Victim: ${caseData.victim || 'Unknown'}
+- Scene Description: ${caseData.location || 'Unknown location'}
+
+IMPORTANT: You can ONLY share details about evidence listed in "Unlocked Evidence" above. When the user asks you to investigate something new and it matches an evidence item, describe it and append [EVIDENCE UNLOCKED: evidence-id].`;
+
+  return summary;
+}
+
 app.use(cors());
 app.use(express.json());
 
@@ -117,6 +188,74 @@ app.get('/api/cases', async (_req, res) => {
   } catch (error) {
     console.error('HATA /api/cases:', error);
     res.status(500).json({ error: 'Failed to load cases' });
+  }
+});
+
+// Create or get existing game session
+app.post('/api/sessions', async (req, res) => {
+  try {
+    const { userId, caseId } = req.body;
+    
+    if (!caseId) {
+      return res.status(400).json({ error: "Missing caseId" });
+    }
+
+    // Check if user already has an active session for this case
+    const { data: existingSessions, error: fetchError } = await supabase
+      .from('game_sessions')
+      .select('session_id, game_state, created_at')
+      .eq('case_id', caseId)
+      .eq('is_solved', false)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (fetchError) {
+      console.error("[SESSION-FETCH-ERROR]:", fetchError);
+      throw fetchError;
+    }
+
+    // If active session exists, return it
+    if (existingSessions && existingSessions.length > 0) {
+      console.log("[SESSION] Returning existing session:", existingSessions[0].session_id);
+      return res.json({
+        sessionId: existingSessions[0].session_id,
+        gameState: existingSessions[0].game_state,
+        isNew: false
+      });
+    }
+
+    // Create new session
+    const { data: newSession, error: createError } = await supabase
+      .from('game_sessions')
+      .insert({
+        user_id: userId || null,
+        case_id: caseId,
+        game_state: {
+          currentLocation: 'crime_scene',
+          unlockedClues: [],
+          interrogatedSuspects: [],
+          knownLocations: ['crime_scene'],
+          stuckCounter: 0
+        }
+      })
+      .select()
+      .single();
+
+    if (createError) {
+      console.error("[SESSION-CREATE-ERROR]:", createError);
+      throw createError;
+    }
+
+    console.log("[SESSION] Created new session:", newSession.session_id);
+    res.json({
+      sessionId: newSession.session_id,
+      gameState: newSession.game_state,
+      isNew: true
+    });
+
+  } catch (error) {
+    console.error("[SESSION-ERROR]:", error);
+    res.status(500).json({ error: 'Failed to create or retrieve game session' });
   }
 });
 
@@ -165,9 +304,14 @@ app.get('/api/cases/:caseId', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   try {
-    const { caseId, message, chatHistory } = req.body;
+    const { caseId, message, chatHistory, sessionId } = req.body;
     if (!message || !caseId) {
       return res.status(400).json({ error: "Missing message or caseId" });
+    }
+    
+    // Session ID is required for stateful gameplay
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing sessionId. Please create a game session first." });
     }
 
     // Anti-spoiler: Detect broad evidence requests before calling AI
@@ -194,7 +338,22 @@ app.post('/api/chat', async (req, res) => {
       return res.status(500).json({ error: "Server is missing AI configuration (Gemini API Key)." });
     }
 
-    // Fetch case data from Supabase
+    // Fetch game session state from Supabase
+    const { data: sessionData, error: sessionError } = await supabase
+      .from('game_sessions')
+      .select('game_state')
+      .eq('session_id', sessionId)
+      .single();
+    
+    if (sessionError || !sessionData) {
+      console.error("[SESSION-ERROR] Failed to fetch session:", sessionError);
+      return res.status(404).json({ error: "Game session not found. Please start a new session." });
+    }
+
+    const gameState = sessionData.game_state;
+    console.log("[DEBUG] Game State:", JSON.stringify(gameState, null, 2));
+
+    // Fetch case data from Supabase (only for metadata and lookups, NOT sent to AI)
     const { data: caseInfo, error: caseError } = await supabase
       .from('cases')
       .select('*')
@@ -211,7 +370,7 @@ app.post('/api/chat', async (req, res) => {
     
     if (detailsError) throw detailsError;
     
-    // Combine case data for dynamic game state
+    // Combine case data (used ONLY for display name lookups, NOT sent to AI in full)
     const caseData = {
       id: caseInfo.id,
       title: caseInfo.title,
@@ -221,26 +380,23 @@ app.post('/api/chat', async (req, res) => {
       victim: details.victim,
       location: details.location,
       suspects: details.suspects,
-      evidence: details.evidence,
-      correctAccusation: details.correct_accusation
+      evidence: details.evidence
+      // NOTE: correctAccusation is deliberately NOT included to prevent AI from knowing the solution
     };
     
     // Debug logging
     console.log("[DEBUG] User Message:", message);
     console.log("[DEBUG] Case ID:", caseId);
+    console.log("[DEBUG] Session ID:", sessionId);
     
-    // Prepare dynamic game state to inject into user message
-    const dynamicGameState = `[DYNAMIC_GAME_STATE]
-${JSON.stringify(caseData, null, 2)}
+    // Generate concise game state summary (replaces the old full JSON dump)
+    const dynamicGameStateSummary = generateDynamicGameStateSummary(gameState, caseData);
+    console.log("[DEBUG] Generated Summary:", dynamicGameStateSummary);
+    
+    // Prepare the user message with minimal context
+    const userMessageWithContext = `${dynamicGameStateSummary}
 
-CRITICAL RULES FOR EVIDENCE:
-1. You can ONLY describe evidence from the above data when the user EXPLICITLY asks you to investigate it (e.g., "check the desk", "examine the knife").
-2. When you describe an evidence item for the FIRST TIME, append [EVIDENCE UNLOCKED: evidence-id] at the end of your response.
-3. For multiple evidence: [EVIDENCE UNLOCKED: id1, id2]
-4. NEVER reveal evidence details without the unlock tag.
-5. NEVER list all evidence or volunteer information.
-
-Current user message: ${message}`;
+USER MESSAGE: ${message}`;
     
     // Map chat history to Gemini format (user/assistant -> user/model)
     const history = Array.isArray(chatHistory) ? chatHistory : [];
@@ -249,7 +405,7 @@ Current user message: ${message}`;
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: String(m.content ?? '') }],
       })),
-      { role: 'user', parts: [{ text: dynamicGameState }] },
+      { role: 'user', parts: [{ text: userMessageWithContext }] },
     ];
 
   // Model name must be set in environment variable
@@ -343,6 +499,34 @@ Current user message: ${message}`;
       responseText: "Wait, something's off with the signal… 📡 Let me refocus. What specific thing should I check at the scene?", 
       unlockedEvidenceIds: [] 
     });
+  }
+  
+  // Update game state with newly unlocked evidence
+  if (unlockedEvidenceIds.length > 0) {
+    const currentUnlockedClues = gameState.unlockedClues || [];
+    const newClues = unlockedEvidenceIds.filter(id => !currentUnlockedClues.includes(id));
+    
+    if (newClues.length > 0) {
+      const updatedUnlockedClues = [...currentUnlockedClues, ...newClues];
+      
+      // Update game_sessions table with new unlocked clues
+      const { error: updateError } = await supabase
+        .from('game_sessions')
+        .update({
+          game_state: {
+            ...gameState,
+            unlockedClues: updatedUnlockedClues
+          }
+        })
+        .eq('session_id', sessionId);
+      
+      if (updateError) {
+        console.error("[SESSION-UPDATE-ERROR] Failed to update game state:", updateError);
+        // Don't fail the request, just log the error
+      } else {
+        console.log("[SESSION-UPDATE] Successfully unlocked evidence:", newClues);
+      }
+    }
   }
   
   // Remove all tags from the text before sending to frontend
