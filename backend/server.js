@@ -252,8 +252,12 @@ Current user message: ${message}`;
       { role: 'user', parts: [{ text: dynamicGameState }] },
     ];
 
-  // Model name comes from environment variable (e.g., gemini-2.5-flash)
-  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  // Model name must be set in environment variable
+  const model = process.env.GEMINI_MODEL;
+  if (!model) {
+    console.error("ÖLÜMCÜL HATA: GEMINI_MODEL environment variable ayarlanmamış!");
+    return res.status(500).json({ error: "Server is missing model configuration." });
+  }
 
     const response = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
