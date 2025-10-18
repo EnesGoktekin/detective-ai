@@ -66,7 +66,17 @@ const DETECTIVE_SYSTEM_INSTRUCTION = {
         "Your response must be clear: \n - \"That's illegal. We have to follow procedure.\"\n - \"I can't work like that, you'll get us both in trouble.\"\n - \"That's not our job. We find evidence, we don't break the law.\""
       ]
     },
-    "knowledge_boundary": "You ONLY know the information given to you in the [DYNAMIC_GAME_STATE] and the general overview of the crime scene. You DO NOT know other clues, suspects, or the case solution from the database. If asked something you don't know, say, \"I don't know, we need to go look/investigate that.\"",
+    "knowledge_boundary": {
+      "title": "KNOWLEDGE_BOUNDARY (Secret Vault Architecture)",
+      "rules": [
+        "You ONLY know information given to you in the [DYNAMIC_GAME_STATE] summary.",
+        "You DO NOT know clues, evidence, or case details until they appear in [NEWLY DISCOVERED EVIDENCE].",
+        "You must NOT make up details about evidence or locations. Describe clues *only* using the exact 'Description' text provided in the [NEWLY DISCOVERED EVIDENCE] section.",
+        "Do NOT invent facts about clues, suspects, or locations. Use database text verbatim.",
+        "If the user asks about something you haven't discovered yet, say: \"I don't know, we need to investigate that location/object.\"",
+        "If the user asks for details about discovered evidence, repeat the exact description from [NEWLY DISCOVERED EVIDENCE]."
+      ]
+    },
     "stuck_loop_rule": {
       "title": "STUCK_LOOP_RULE (Proactive Thinking)",
       "condition": "If the user seems stuck (e.g., 3+ failed actions, saying 'I don't know', or repeating the same failed action), DO NOT remain passive. Act like a colleague.",
@@ -322,171 +332,74 @@ async function updateGameState(intent, currentGameState, caseData) {
 /**
  * OLD updateGameState - Applies game rules based on intent (DEPRECATED - SEE NEW VERSION ABOVE)
  * @param {object} intent - Parsed intent from parseIntent()
- * @param {object} currentGameState - Current game state from Supabase
- * @param {object} caseData - Full case data (for rule checking)
- * @returns {object} - { newState, progressMade, unlockedEvidence }
- */
-function updateGameState(intent, currentGameState, caseData) {
-  const { action, target } = intent;
-  const newState = { ...currentGameState };
-  let progressMade = false;
-  const unlockedEvidence = [];
-  
-  // Get current location
-  const currentLocation = newState.currentLocation || 'crime_scene';
-  const unlockedClues = newState.unlockedClues || [];
-  
-  console.log(`[GAME-LOGIC] Processing action='${action}' target='${target}' at location='${currentLocation}'`);
-  
-  // INSPECT action logic
-  if (action === 'inspect' && target) {
-    // Check if there's evidence at this location matching the target
-    const evidenceItems = Array.isArray(caseData.evidence) ? caseData.evidence : [];
-    
-    for (const evidence of evidenceItems) {
-      const evidenceId = evidence.id;
-      const evidenceLocation = evidence.location || 'crime_scene';
-      const evidenceName = (evidence.name || '').toLowerCase();
-      const evidenceDesc = (evidence.description || '').toLowerCase();
-      
-      // Check if evidence is already unlocked
-      if (unlockedClues.includes(evidenceId)) {
-        continue; // Skip already unlocked evidence
-      }
-      
-      // Check if evidence is at current location
-      if (evidenceLocation !== currentLocation) {
-        continue; // Evidence not at this location
-      }
-      
-      // IMPROVED: Match target against evidence
-      // 1. Direct ID match (if target is evidence ID like "E01")
-      // 2. Target appears in evidence name
-      // 3. Target appears in evidence description
-      // 4. Evidence name contains target
-      const targetLower = target.toLowerCase();
-      const targetMatches = 
-        evidenceId === target ||                    // Exact ID match
-        evidenceName.includes(targetLower) ||       // Target in name
-        evidenceDesc.includes(targetLower) ||       // Target in description
-        targetLower.includes(evidenceName);         // Name in target (e.g., target="bookshelf", name="book")
-      
-      if (targetMatches) {
-        // FOUND NEW EVIDENCE!
-        unlockedEvidence.push(evidenceId);
-        newState.unlockedClues = [...unlockedClues, evidenceId];
-        newState.stuckCounter = 0; // Reset stuck counter
-        progressMade = true;
-        console.log(`[GAME-LOGIC] ✅ Unlocked evidence: ${evidenceId} (matched target: ${target})`);
-      }
-    }
-    
-    // If no evidence found, increment stuck counter
-    if (!progressMade) {
-      newState.stuckCounter = (newState.stuckCounter || 0) + 1;
-      console.log(`[GAME-LOGIC] ⚠️ No evidence found for target '${target}' at '${currentLocation}'. Stuck counter: ${newState.stuckCounter}`);
-    }
-  }
-  
-  // MOVE action logic
-  else if (action === 'move' && target) {
-    const knownLocations = newState.knownLocations || ['crime_scene'];
-    
-    // Check if location is known
-    if (knownLocations.includes(target)) {
-      newState.currentLocation = target;
-      progressMade = true;
-      console.log(`[GAME-LOGIC] ✅ Moved to: ${target}`);
-    } else {
-      console.log(`[GAME-LOGIC] ⚠️ Location '${target}' not yet discovered`);
-      newState.stuckCounter = (newState.stuckCounter || 0) + 1;
-    }
-  }
-  
-  // TALK action logic
-  else if (action === 'talk') {
-    // For now, just track that user is trying to interrogate
-    // In future, can track which suspects have been questioned
-    console.log(`[GAME-LOGIC] 🗣️ User wants to talk to suspects`);
-    // Don't increment stuck counter for social actions
-  }
-  
-  // CHAT action (default)
-  else {
-    // General conversation - don't penalize with stuck counter
-    console.log(`[GAME-LOGIC] 💬 General conversation`);
-  }
-  
-  return { newState, progressMade, unlockedEvidence };
-}
-
-// ============================================
-// Helper Functions
-// ============================================
-
 /**
- * Generate a concise natural-language summary of the game state for the AI.
- * This replaces the old practice of sending the entire caseData JSON.
+ * generateDynamicGameStateSummary - NEW SECRET VAULT VERSION
+ * Creates AI context summary with newly discovered clue descriptions injected
  * 
  * @param {Object} gameState - The JSONB game state from game_sessions table
- * @param {Object} caseData - Full case data (only used for display name lookups)
+ * @param {Array} newClues - Array of newly discovered clue objects from Secret Vault
+ * @param {Object} caseData - Full case data (for location info)
  * @returns {string} - Natural language summary for AI context
  */
-function generateDynamicGameStateSummary(gameState, caseData) {
+function generateDynamicGameStateSummary(gameState, newClues, caseData) {
   const {
-    currentLocation = 'crime_scene',
+    currentLocation = 'study_room',
     unlockedClues = [],
-    interrogatedSuspects = [],
-    knownLocations = ['crime_scene'],
+    knownLocations = [],
     stuckCounter = 0
   } = gameState;
 
-  // Build evidence lookup map (ID -> display name)
-  const evidenceMap = {};
-  if (Array.isArray(caseData.evidence)) {
-    caseData.evidence.forEach(item => {
-      evidenceMap[item.id] = item.name || item.id;
-    });
-  }
+  // Get current location data from caseData.locations
+  const locations = Array.isArray(caseData.locations) ? caseData.locations : [];
+  const currentLocationData = locations.find(loc => loc.id === currentLocation);
+  const locationName = currentLocationData?.name || currentLocation;
 
-  // Build suspect lookup map (ID -> display name)
-  const suspectMap = {};
-  if (Array.isArray(caseData.suspects)) {
-    caseData.suspects.forEach(suspect => {
-      suspectMap[suspect.id] = suspect.name || suspect.id;
-    });
-  }
-
-  // Map clue IDs to display names
-  const unlockedClueNames = unlockedClues
-    .map(id => evidenceMap[id] || id)
-    .join(', ') || 'None yet';
-
-  // Map suspect IDs to display names
-  const interrogatedSuspectNames = interrogatedSuspects
-    .map(id => suspectMap[id] || id)
-    .join(', ') || 'None so far';
-
-  // Get location display name
-  const locationName = currentLocation
-    .split('_')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-
-  // Build the summary
-  const summary = `[DYNAMIC_GAME_STATE]
+  // Build the base summary
+  let summary = `[DYNAMIC_GAME_STATE]
 Current Location: ${locationName}
-Unlocked Evidence: ${unlockedClueNames}
-Suspects Interrogated: ${interrogatedSuspectNames}
-Known Locations: ${knownLocations.join(', ')}
-Investigation Progress: ${unlockedClues.length} clue(s) discovered
+Total Clues Unlocked: ${unlockedClues.length}
+Known Locations: ${knownLocations.map(id => {
+    const loc = locations.find(l => l.id === id);
+    return loc?.name || id;
+  }).join(', ')}
+Investigation Status: ${stuckCounter > 2 ? 'User seems stuck - offer hints' : 'Progressing normally'}
 
-CONTEXT:
-- Case: ${caseData.title || 'Unknown Case'}
-- Victim: ${caseData.victim || 'Unknown'}
-- Scene Description: ${caseData.location || 'Unknown location'}
+`;
 
-IMPORTANT: You can ONLY share details about evidence listed in "Unlocked Evidence" above. If the user asks about evidence not yet unlocked, guide them to investigate the right location or object.`;
+  // ============================================================================
+  // INJECT NEWLY DISCOVERED CLUE DESCRIPTIONS (Secret Vault)
+  // ============================================================================
+  
+  if (newClues && newClues.length > 0) {
+    summary += `[NEWLY DISCOVERED EVIDENCE]\n`;
+    
+    for (const clue of newClues) {
+      // Handle location change messages
+      if (clue.type === 'location_change') {
+        summary += `\n[LOCATION CHANGE]\n${clue.description}\n`;
+        continue;
+      }
+      
+      // Handle actual clues from Secret Vault
+      const clueName = clue.name || 'Unknown';
+      const clueDesc = clue.description || 'No description available';
+      
+      summary += `\nClue: ${clueName}\n`;
+      summary += `Description: ${clueDesc}\n`;
+    }
+    
+    summary += `\n`;
+  }
+
+  // ============================================================================
+  // CRITICAL INSTRUCTION
+  // ============================================================================
+  
+  summary += `IMPORTANT RULES:
+1. You must ONLY describe evidence using the exact text from [NEWLY DISCOVERED EVIDENCE] above.
+2. Do NOT make up details about clues. Use the Description text verbatim.
+3. If user asks about evidence not yet discovered, guide them to investigate specific objects.
+4. Be conversational and stay in character as Detective X.`;
 
   return summary;
 }
@@ -685,33 +598,24 @@ app.get('/api/cases/:caseId', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/chat - COMPLETE REFACTOR (Part 3 Phase 2)
+ * Implements Blind Map / Secret Vault architecture with chat history persistence
+ */
 app.post('/api/chat', async (req, res) => {
   try {
-    const { caseId, message, chatHistory, sessionId } = req.body;
+    const { caseId, message, sessionId } = req.body;
+    
+    // ============================================================================
+    // STEP 1: VALIDATE INPUT
+    // ============================================================================
+    
     if (!message || !caseId) {
       return res.status(400).json({ error: "Missing message or caseId" });
     }
     
-    // Session ID is required for stateful gameplay
     if (!sessionId) {
       return res.status(400).json({ error: "Missing sessionId. Please create a game session first." });
-    }
-
-    // Anti-spoiler: Detect broad evidence requests before calling AI
-    const spoilerPatterns = [
-      /\b(all|list|show|give|tell)\s+(me\s+)?(the\s+)?(evidence|clues|items)\b/i,
-      /\b(what|which)\s+(is|are)\s+(the\s+)?(evidence|clues)\b/i,
-      /\btümü?n?\s+(delil|kanıt|ipuç)/i, // Turkish patterns
-      /\b(ne|hangi)\s+(delil|kanıt)/i
-    ];
-    
-    const isSpoilerAttempt = spoilerPatterns.some(pattern => pattern.test(message));
-    if (isSpoilerAttempt) {
-      console.log("[ANTI-SPOILER] Detected spoiler request:", message);
-      return res.json({ 
-        responseText: "Boss, I don't even know what's evidence yet! 🤷 Tell me where to look specifically—like 'check the desk' or 'examine the window.' Point me somewhere!", 
-        unlockedEvidenceIds: [] 
-      });
     }
 
     // Gemini API Key (prefer GEMINI_API_KEY, fallback GOOGLE_API_KEY)
@@ -721,6 +625,10 @@ app.post('/api/chat', async (req, res) => {
       return res.status(500).json({ error: "Server is missing AI configuration (Gemini API Key)." });
     }
 
+    // ============================================================================
+    // STEP 2: FETCH GAME SESSION & CASE DATA
+    // ============================================================================
+    
     // Fetch game session state from Supabase
     const { data: sessionData, error: sessionError } = await supabase
       .from('game_sessions')
@@ -734,98 +642,86 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const gameState = sessionData.game_state;
-    console.log("[DEBUG] Game State:", JSON.stringify(gameState, null, 2));
+    console.log("[DEBUG] Current Game State:", JSON.stringify(gameState, null, 2));
 
-    // Fetch case data from Supabase (only for metadata and lookups, NOT sent to AI)
+    // Fetch case data from Supabase (Blind Map: only locations structure)
     const { data: caseInfo, error: caseError } = await supabase
       .from('cases')
-      .select('*')
+      .select('id, title, synopsis, case_number, locations')
       .eq('id', caseId)
       .single();
     
-    if (caseError) throw caseError;
+    if (caseError) {
+      console.error("[CASE-ERROR] Failed to fetch case:", caseError);
+      throw caseError;
+    }
     
-    const { data: details, error: detailsError } = await supabase
-      .from('case_details')
-      .select('*')
-      .eq('id', caseId)
-      .single();
+    // Parse locations JSONB (Blind Map)
+    const locations = Array.isArray(caseInfo.locations) ? caseInfo.locations : [];
     
-    if (detailsError) throw detailsError;
-    
-    // Combine case data (used ONLY for display name lookups, NOT sent to AI in full)
     const caseData = {
       id: caseInfo.id,
       title: caseInfo.title,
       synopsis: caseInfo.synopsis,
       caseNumber: caseInfo.case_number,
-      fullStory: details.full_story,
-      victim: details.victim,
-      location: details.location,
-      suspects: details.suspects,
-      evidence: details.evidence
-      // NOTE: correctAccusation is deliberately NOT included to prevent AI from knowing the solution
+      locations: locations
+      // NOTE: No correctAccusation, no full evidence list - AI sees only via Secret Vault
     };
     
-    // Debug logging
     console.log("[DEBUG] User Message:", message);
     console.log("[DEBUG] Case ID:", caseId);
     console.log("[DEBUG] Session ID:", sessionId);
     
     // ============================================================================
-    // NEW: INTENT PARSING & GAME STATE UPDATE
+    // STEP 3: PARSE INTENT (BLIND MAP ARCHITECTURE)
     // ============================================================================
     
-    // Step 1: Parse user's intent (with caseData for dynamic target detection)
-    const intent = parseIntent(message, caseData);
+    const intent = parseIntent(message, caseData, gameState);
     console.log("[INTENT] Parsed:", JSON.stringify(intent));
     
-    // Step 2: Update game state based on intent
-    const { newState, progressMade, unlockedEvidence } = updateGameState(intent, gameState, caseData);
+    // ============================================================================
+    // STEP 4: UPDATE GAME STATE (SECRET VAULT ARCHITECTURE)
+    // ============================================================================
+    
+    const { newState, progressMade, newClues } = await updateGameState(intent, gameState, caseData);
     console.log("[GAME-STATE] Progress made:", progressMade);
-    console.log("[GAME-STATE] Unlocked evidence:", unlockedEvidence);
+    console.log("[GAME-STATE] New clues unlocked:", newClues.length);
+    console.log("[GAME-STATE] New clues:", JSON.stringify(newClues));
     
-    // Step 3: Save updated game state to Supabase
-    const { error: updateError } = await supabase
-      .from('game_sessions')
-      .update({
-        game_state: newState,
-        updated_at: new Date().toISOString()
-      })
-      .eq('session_id', sessionId);
+    // ============================================================================
+    // STEP 5: GENERATE DYNAMIC SUMMARY (WITH NEW CLUES INJECTED)
+    // ============================================================================
     
-    if (updateError) {
-      console.error("[SESSION-UPDATE-ERROR] Failed to save game state:", updateError);
-      // Don't fail the request, but log the error
-    } else {
-      console.log("[SESSION-UPDATE] Game state saved successfully");
-    }
-    
-    // Step 4: Generate summary with UPDATED game state
-    const dynamicGameStateSummary = generateDynamicGameStateSummary(newState, caseData);
+    const dynamicGameStateSummary = generateDynamicGameStateSummary(newState, newClues, caseData);
     console.log("[DEBUG] Generated Summary:", dynamicGameStateSummary);
     
-    // Prepare the user message with minimal context
+    // ============================================================================
+    // STEP 6: CALL GEMINI API WITH CHAT HISTORY
+    // ============================================================================
+    
+    // Prepare user message with dynamic summary (contains new clue descriptions)
     const userMessageWithContext = `${dynamicGameStateSummary}
 
 USER MESSAGE: ${message}`;
     
-    // Map chat history to Gemini format (user/assistant -> user/model)
-    const history = Array.isArray(chatHistory) ? chatHistory : [];
+    // Get chat history from gameState (persistent, not from request body)
+    const chatHistory = Array.isArray(newState.chatHistory) ? newState.chatHistory : [];
+    
+    // Map to Gemini format (user/model)
     const contents = [
-      ...history.map((m) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
+      ...chatHistory.map((m) => ({
+        role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: String(m.content ?? '') }],
       })),
       { role: 'user', parts: [{ text: userMessageWithContext }] },
     ];
 
-  // Model name must be set in environment variable
-  const model = process.env.GEMINI_MODEL;
-  if (!model) {
-    console.error("ÖLÜMCÜL HATA: GEMINI_MODEL environment variable ayarlanmamış!");
-    return res.status(500).json({ error: "Server is missing model configuration." });
-  }
+    // Model name must be set in environment variable
+    const model = process.env.GEMINI_MODEL;
+    if (!model) {
+      console.error("ÖLÜMCÜL HATA: GEMINI_MODEL environment variable ayarlanmamış!");
+      return res.status(500).json({ error: "Server is missing model configuration." });
+    }
 
     const response = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -835,8 +731,8 @@ USER MESSAGE: ${message}`;
         },
         contents,
         generationConfig: {
-          temperature: 0.7,         // Slightly more creative for personality
-          maxOutputTokens: 2048,    // Increased from 500 to prevent MAX_TOKENS finishReason errors
+          temperature: 0.7,
+          maxOutputTokens: 2048,
           topP: 0.95,
           topK: 40
         },
@@ -852,38 +748,65 @@ USER MESSAGE: ${message}`;
       }
     );
 
-  // Debug: Full API response structure
-  console.log("[DEBUG] Full Gemini API Response:", JSON.stringify(response.data, null, 2));
+    // Debug: Full API response
+    console.log("[DEBUG] Full Gemini API Response:", JSON.stringify(response.data, null, 2));
 
-  const candidate = response.data?.candidates?.[0];
-  const parts = candidate?.content?.parts || [];
-  const aiResponse = parts.map((p) => p?.text || '').join('');
-  
-  console.log("[DEBUG] AI Response:", aiResponse);
-  console.log("[DEBUG] Token usage:", {
-    promptTokens: response.data?.usageMetadata?.promptTokenCount,
-    candidatesTokens: response.data?.usageMetadata?.candidatesTokenCount,
-    totalTokens: response.data?.usageMetadata?.totalTokenCount
-  });
-  console.log("[BACKEND-DEBUG] Raw AI Response String (Gemini):", aiResponse);
+    const candidate = response.data?.candidates?.[0];
+    const parts = candidate?.content?.parts || [];
+    const aiResponse = parts.map((p) => p?.text || '').join('');
+    
+    console.log("[DEBUG] AI Response:", aiResponse);
+    console.log("[DEBUG] Token usage:", {
+      promptTokens: response.data?.usageMetadata?.promptTokenCount,
+      candidatesTokens: response.data?.usageMetadata?.candidatesTokenCount,
+      totalTokens: response.data?.usageMetadata?.totalTokenCount
+    });
 
-  const rawText = aiResponse || "";
-  
-  // ============================================================================
-  // NEW: Return AI response with evidence unlocked from intent parsing
-  // ============================================================================
-  
-  // Evidence is now unlocked by intent parsing (before AI call), not by AI tags
-  // Return the evidence that was unlocked in the game logic phase
-  const cleanedText = rawText.trim();
-  
-  console.log("[BACKEND-DEBUG] Evidence unlocked (from intent):", unlockedEvidence);
-  console.log("[BACKEND-DEBUG] Final response:", { responseText: cleanedText, unlockedEvidenceIds: unlockedEvidence });
-  
-  res.json({ 
-    responseText: cleanedText, 
-    unlockedEvidenceIds: unlockedEvidence 
-  });
+    const cleanedText = aiResponse.trim() || "";
+    
+    // ============================================================================
+    // STEP 7: PERSIST CHAT HISTORY TO DATABASE
+    // ============================================================================
+    
+    // Append user message and AI response to chat history
+    newState.chatHistory = [
+      ...chatHistory,
+      { role: 'user', content: message },
+      { role: 'model', content: cleanedText }
+    ];
+    
+    // Save updated game state with chat history
+    const { error: updateError } = await supabase
+      .from('game_sessions')
+      .update({
+        game_state: newState,
+        updated_at: new Date().toISOString()
+      })
+      .eq('session_id', sessionId);
+    
+    if (updateError) {
+      console.error("[SESSION-UPDATE-ERROR] Failed to save game state with chat history:", updateError);
+      // Don't fail the request, but log the error
+    } else {
+      console.log("[SESSION-UPDATE] Game state with chat history saved successfully");
+    }
+    
+    // ============================================================================
+    // STEP 8: RETURN RESPONSE TO FRONTEND
+    // ============================================================================
+    
+    // Extract newly unlocked clue IDs (for frontend notifications)
+    const unlockedClueIds = newClues
+      .filter(c => c.type !== 'location_change')
+      .map(c => c.id);
+    
+    console.log("[BACKEND-DEBUG] Unlocked clue IDs:", unlockedClueIds);
+    console.log("[BACKEND-DEBUG] Final response:", { responseText: cleanedText, unlockedEvidenceIds: unlockedClueIds });
+    
+    res.json({ 
+      responseText: cleanedText, 
+      unlockedEvidenceIds: unlockedClueIds
+    });
 
   } catch (error) {
     console.error("--- /api/chat İÇİNDE ÖLÜMCÜL HATA ---");
