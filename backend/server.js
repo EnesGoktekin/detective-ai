@@ -597,45 +597,56 @@ app.get('/api/cases', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/cases/:caseId - Fetch full case details for game page
+ * NEW DATABASE: All data now in 'cases' table (no more case_details)
+ * Returns: locations (Blind Map), victim, suspects, correctAccusation
+ */
 app.get('/api/cases/:caseId', async (req, res) => {
   try {
     const { caseId } = req.params;
     
-    // Fetch case basic info
-    const { data: caseInfo, error: caseError } = await supabase
+    // Fetch case from new database structure (all in 'cases' table)
+    const { data: caseData, error } = await supabase
       .from('cases')
       .select('*')
       .eq('id', caseId)
       .single();
     
-    if (caseError) throw caseError;
+    if (error) {
+      console.error(`[CASE-DETAIL-ERROR] Case ${caseId}:`, error);
+      throw error;
+    }
     
-    // Fetch case details
-    const { data: details, error: detailsError } = await supabase
-      .from('case_details')
-      .select('*')
-      .eq('id', caseId)
-      .single();
+    if (!caseData) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     
-    if (detailsError) throw detailsError;
-    
-    // Combine and map to match frontend expectation
-    const caseData = {
-      id: caseInfo.id,
-      title: caseInfo.title,
-      synopsis: caseInfo.synopsis,
-      caseNumber: caseInfo.case_number,
-      fullStory: details.full_story,
-      victim: details.victim,
-      location: details.location,
-      suspects: details.suspects,
-      evidence: details.evidence,
-      correctAccusation: details.correct_accusation
+    // Map to frontend format (NEW DATABASE STRUCTURE)
+    const response = {
+      id: caseData.id,
+      title: caseData.title,
+      synopsis: caseData.synopsis,
+      caseNumber: caseData.case_number,
+      
+      // NEW: locations (Blind Map) - JSONB column
+      locations: caseData.locations || [],
+      
+      // Victim info - JSONB column
+      victim: caseData.victim || {},
+      
+      // Suspects list - JSONB column
+      suspects: caseData.suspects || [],
+      
+      // Solution (NOT sent to AI, only for accusation check)
+      correctAccusation: caseData.correctaccusation || {}
     };
     
-    res.json(caseData);
+    console.log(`[CASE-DETAIL] Fetched case: ${caseData.title}`);
+    
+    res.json(response);
   } catch (error) {
-    console.error(`HATA /api/cases/${req.params.caseId}:`, error);
+    console.error(`[CASE-DETAIL-ERROR] /api/cases/${req.params.caseId}:`, error);
     res.status(404).json({ error: 'Case not found' });
   }
 });
