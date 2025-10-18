@@ -562,6 +562,8 @@ app.post('/api/sessions', async (req, res) => {
  */
 app.get('/api/cases', async (req, res) => {
   try {
+    console.log("[CASES-LIST] Attempting to fetch from case_screen table...");
+    
     // Query case_screen table (RLS disabled - public data)
     const { data: cases, error } = await supabase
       .from('case_screen')
@@ -569,7 +571,12 @@ app.get('/api/cases', async (req, res) => {
       .order('case_number', { ascending: true });
     
     if (error) {
-      console.error("[CASES-LIST-ERROR]:", error);
+      console.error("[CASES-LIST-ERROR] Supabase error:", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
       throw error;
     }
     
