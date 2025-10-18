@@ -6,7 +6,18 @@ import { useCases } from "../hooks/useCases";
 // Data is now fetched from the backend via the useCases hook
 
 const CaseSelectionPage = () => {
+  console.log('[CaseSelectionPage] Component rendering');
+  
   const { data, isLoading, error } = useCases();
+  
+  console.log('[CaseSelectionPage] Hook state:', { 
+    hasData: data !== null,
+    dataLength: data?.length || 0,
+    isLoading, 
+    error,
+    fullData: data
+  });
+  
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="max-w-7xl mx-auto">
@@ -23,37 +34,49 @@ const CaseSelectionPage = () => {
         </h1>
 
         {isLoading && (
-          <p className="text-center font-jetbrains">Loading cases...</p>
+          <>
+            {console.log('[CaseSelectionPage] Rendering: Loading state')}
+            <p className="text-center font-jetbrains">Loading cases...</p>
+          </>
         )}
 
         {error && !isLoading && (
-          <p className="text-center font-jetbrains text-red-500">{error}</p>
+          <>
+            {console.log('[CaseSelectionPage] Rendering: Error state -', error)}
+            <p className="text-center font-jetbrains text-red-500">{error}</p>
+          </>
         )}
 
         {!isLoading && !error && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {(data ?? []).map((caseItem) => (
-              <Link key={caseItem.id} to={`/game/${caseItem.id}`}>
-                <Card className="h-full hover:shadow-noir-glow transition-all duration-300 cursor-pointer border-border/50 hover:border-primary/50">
-                  <CardHeader>
-                    <CardTitle className="font-playfair text-2xl text-primary">
-                      {caseItem.title}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription className="font-jetbrains text-foreground/80">
-                      {caseItem.synopsis}
-                    </CardDescription>
-                  </CardContent>
-                  <CardFooter>
-                    <span className="font-jetbrains text-sm text-muted-foreground">
-                      {caseItem.caseNumber}
-                    </span>
-                  </CardFooter>
-                </Card>
-              </Link>
-            ))}
-          </div>
+          <>
+            {console.log('[CaseSelectionPage] Rendering: Case list with', data?.length || 0, 'cases')}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {(data ?? []).map((caseItem) => {
+                console.log('[CaseSelectionPage] Rendering case card:', caseItem.id, caseItem.title);
+                return (
+                  <Link key={caseItem.id} to={`/game/${caseItem.id}`}>
+                    <Card className="h-full hover:shadow-noir-glow transition-all duration-300 cursor-pointer border-border/50 hover:border-primary/50">
+                      <CardHeader>
+                        <CardTitle className="font-playfair text-2xl text-primary">
+                          {caseItem.title}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <CardDescription className="font-jetbrains text-foreground/80">
+                          {caseItem.synopsis}
+                        </CardDescription>
+                      </CardContent>
+                      <CardFooter>
+                        <span className="font-jetbrains text-sm text-muted-foreground">
+                          {caseItem.caseNumber}
+                        </span>
+                      </CardFooter>
+                    </Card>
+                  </Link>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
     </div>
