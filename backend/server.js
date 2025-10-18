@@ -557,14 +557,14 @@ app.post('/api/sessions', async (req, res) => {
 
 /**
  * GET /api/cases - Fetch case list for frontend menu
- * Uses SERVICE_ROLE_KEY to bypass RLS (no RLS policy needed)
- * Returns only safe columns: id, title, synopsis
+ * Queries case_screen table (RLS disabled, public access)
+ * Returns only safe menu data: id, title, synopsis, case_number
  */
 app.get('/api/cases', async (req, res) => {
   try {
-    // Query cases table with SERVICE_ROLE_KEY (bypasses RLS)
+    // Query case_screen table (RLS disabled - public data)
     const { data: cases, error } = await supabase
-      .from('cases')
+      .from('case_screen')
       .select('id, title, synopsis, case_number')
       .order('case_number', { ascending: true });
     
