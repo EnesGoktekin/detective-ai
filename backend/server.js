@@ -635,6 +635,71 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
 });
 
 /**
+ * GET /api/sessions/latest - Find latest active session for a case
+ * Query param: ?caseId=case-123
+ * Used to check if user has existing unfinished game (Resume vs Start New)
+ * Returns most recent session for the case
+ */
+app.get('/api/sessions/latest', async (req, res) => {
+  try {
+    const { caseId } = req.query;
+    
+    // Input validation: Check if caseId is provided
+    if (!caseId) {
+      return res.status(400).json({ 
+        error: 'Missing caseId query parameter',
+        usage: 'GET /api/sessions/latest?caseId=case-123'
+      });
+    }
+    
+    console.log(`[SESSION-LATEST] Checking for latest session for case: ${caseId}`);
+    
+    // Query for most recent session for this case
+    // maybeSingle() returns one row or null (doesn't throw error if no rows found)
+    const { data, error } = await supabase
+      .from('game_sessions')
+      .select('session_id, created_at')
+      .eq('case_id', caseId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    if (error) {
+      console.error('[SESSION-LATEST-ERROR]:', {
+        caseId,
+        error: error.message,
+        code: error.code,
+        details: error.details
+      });
+      throw error;
+    }
+    
+    // If session found
+    if (data) {
+      console.log(`[SESSION-LATEST] Found session: ${data.session_id} (created: ${data.created_at})`);
+      return res.status(200).json({ 
+        latestSessionId: data.session_id,
+        createdAt: data.created_at
+      });
+    }
+    
+    // No session found
+    console.log(`[SESSION-LATEST] No session found for case: ${caseId}`);
+    res.status(200).json({ 
+      latestSessionId: null,
+      message: 'No existing session for this case'
+    });
+    
+  } catch (error) {
+    console.error('[SESSION-LATEST-ERROR] Catch block:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch latest session',
+      details: error.message || 'Unknown error'
+    });
+  }
+});
+
+/**
  * GET /api/cases - Fetch case list for frontend menu
  * IMPORTANT: Queries case_screen table (NOT cases table)
  * case_screen = RLS disabled, public menu data only
