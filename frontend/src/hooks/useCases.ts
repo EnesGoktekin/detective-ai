@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabaseClient';
 import type { CaseSummary } from '../types/contracts.ts';
 
 interface UseCasesResult {
@@ -8,10 +9,11 @@ interface UseCasesResult {
 }
 
 /**
- * useCases - Fetch case list from secure backend endpoint
+ * useCases - Fetch case list from case_screen table
  * 
- * Uses GET /api/cases which bypasses RLS with SERVICE_ROLE_KEY
- * Relative path works in Vercel (frontend and backend on same domain)
+ * Uses direct Supabase query to case_screen (RLS-disabled public table)
+ * Contains only safe, public data: id, title, synopsis, case_number
+ * Actual game data (cases, clues) remains secure behind RLS
  */
 export function useCases(): UseCasesResult {
   const [data, setData] = useState<CaseSummary[] | null>(null);
@@ -19,23 +21,39 @@ export function useCases(): UseCasesResult {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setIsLoading(true);
-    setError(null);
+    const fetchCases = async () => {
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        // Query case_screen table (RLS-disabled, public ANON_KEY access)
+        const { data: cases, error: supabaseError } = await supabase
+          .from('case_screen')
+          .select('id, title, synopsis, case_number')
+          .order('case_number', { ascending: true });
+        
+        if (supabaseError) {
+          throw supabaseError;
+        }
+        
+        // Map to frontend format
+        const mappedCases = (cases || []).map((c) => ({
+          id: c.id,
+          title: c.title,
+          synopsis: c.synopsis,
+          caseNumber: c.case_number,
+        }));
+        
+        setData(mappedCases);
+      } catch (err) {
+        console.error('[useCases] Error fetching cases:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch cases');
+      } finally {
+        setIsLoading(false);
+      }
+    };
     
-    // Relative path: Works in Vercel (same domain) and with Vite proxy (dev)
-    fetch('/api/cases')
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to fetch cases');
-        return res.json();
-      })
-      .then((json) => {
-        setData(json);
-        setIsLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message || 'Unknown error');
-        setIsLoading(false);
-      });
+    fetchCases();
   }, []);
 
   return { data, isLoading, error };
