@@ -93,75 +93,137 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 /**
  * parseIntent - Analyzes user message and extracts actionable intent
+ * TARGET-FIRST ARCHITECTURE: Prioritizes identifying WHAT user is talking about
+ * before determining WHAT they want to do. This prevents generic actions from
+ * overriding specific targets (e.g., "kitaplığa bak" must detect "kitaplık" first).
+ * 
  * @param {string} message - User's message
+ * @param {object} caseData - Optional case data to get dynamic targets (evidence names)
  * @returns {object} - { action: string, target: string|null, keywords: string[] }
  */
-function parseIntent(message) {
+function parseIntent(message, caseData = null) {
   const msg = message.toLowerCase().trim();
   
-  // Define action keywords (English + Turkish)
-  const inspectKeywords = ['inspect', 'examine', 'check', 'look at', 'search', 'investigate', 'incele', 'ara', 'kontrol', 'bak'];
-  const moveKeywords = ['go to', 'move to', 'travel to', 'visit', 'git', 'geç', 'yürü'];
-  const talkKeywords = ['talk to', 'ask', 'interrogate', 'question', 'interview', 'konuş', 'sor'];
+  // ============================================================================
+  // PHASE 1: TARGET DETECTION (Priority)
+  // ============================================================================
   
-  // Define target keywords (locations, objects, suspects)
+  // Define inspectable object targets (English + Turkish synonyms)
+  const objectTargets = {
+    // Furniture & Room Objects
+    'desk': ['desk', 'table', 'masa', 'çalışma masası', 'yazı masası'],
+    'bookshelf': ['bookshelf', 'shelf', 'bookcase', 'kitaplık', 'raf', 'kitap rafı'],
+    'drawer': ['drawer', 'cabinet', 'çekmece', 'dolap', 'çekmeceler'],
+    'safe': ['safe', 'vault', 'kasa', 'çelik kasa'],
+    'computer': ['computer', 'laptop', 'pc', 'bilgisayar', 'dizüstü'],
+    'phone': ['phone', 'mobile', 'cell', 'telefon', 'cep telefonu', 'mobil'],
+    
+    // Crime Scene Objects
+    'body': ['body', 'victim', 'corpse', 'ceset', 'kurban', 'ölü'],
+    'weapon': ['weapon', 'gun', 'knife', 'pistol', 'silah', 'bıçak', 'tabanca'],
+    'bloodstain': ['blood', 'bloodstain', 'stain', 'kan', 'kan lekesi', 'leke'],
+    
+    // Room Features
+    'window': ['window', 'cam', 'pencere'],
+    'door': ['door', 'entrance', 'kapı', 'giriş'],
+    'wall': ['wall', 'duvar'],
+    'floor': ['floor', 'ground', 'zemin', 'yer', 'döşeme'],
+    'ceiling': ['ceiling', 'tavan'],
+    
+    // Documents & Items
+    'notebook': ['notebook', 'journal', 'diary', 'defter', 'not defteri', 'günlük'],
+    'letter': ['letter', 'note', 'mektup', 'not', 'yazı'],
+    'photo': ['photo', 'picture', 'photograph', 'fotoğraf', 'resim'],
+    'document': ['document', 'file', 'paper', 'belge', 'dosya', 'evrak'],
+    
+    // Bottles & Containers
+    'bottle': ['bottle', 'flask', 'şişe', 'viski şişesi', 'whiskey bottle'],
+    'glass': ['glass', 'cup', 'bardak', 'kadeh'],
+    'ashtray': ['ashtray', 'kül tablası'],
+    
+    // Electronics
+    'camera': ['camera', 'cctv', 'kamera', 'güvenlik kamerası'],
+    'recorder': ['recorder', 'recording', 'kayıt cihazı', 'kaydedici'],
+    
+    // Clothing & Personal Items
+    'coat': ['coat', 'jacket', 'palto', 'ceket', 'manto'],
+    'bag': ['bag', 'purse', 'briefcase', 'çanta', 'valiz'],
+    'wallet': ['wallet', 'cüzdan'],
+    'keys': ['keys', 'key', 'anahtar', 'anahtarlar']
+  };
+  
+  // Check for OBJECT TARGETS first (highest priority)
+  for (const [targetKey, synonyms] of Object.entries(objectTargets)) {
+    for (const synonym of synonyms) {
+      // Use word boundary check to avoid false positives
+      const regex = new RegExp(`\\b${synonym}\\b`, 'i');
+      if (regex.test(msg)) {
+        console.log(`[INTENT] 🎯 Target detected: "${targetKey}" (matched: "${synonym}")`);
+        return { action: 'inspect', target: targetKey, keywords: [synonym] };
+      }
+    }
+  }
+  
+  // If caseData provided, check evidence names dynamically
+  if (caseData && Array.isArray(caseData.evidence)) {
+    for (const evidence of caseData.evidence) {
+      const evidenceName = (evidence.name || '').toLowerCase();
+      const evidenceId = evidence.id;
+      
+      // Check if evidence name appears in message
+      if (evidenceName.length > 3 && msg.includes(evidenceName)) {
+        console.log(`[INTENT] 🎯 Dynamic target detected: "${evidenceId}" (matched: "${evidenceName}")`);
+        return { action: 'inspect', target: evidenceId, keywords: [evidenceName] };
+      }
+    }
+  }
+  
+  // ============================================================================
+  // PHASE 2: LOCATION TARGETS (Move Actions)
+  // ============================================================================
+  
   const locationTargets = {
-    'crime_scene': ['scene', 'crime scene', 'olay yeri', 'sahne'],
-    'victim_house': ['house', 'home', 'residence', 'victim house', 'ev', 'konut'],
-    'office': ['office', 'workplace', 'ofis', 'iş yeri'],
-    'warehouse': ['warehouse', 'storage', 'depo'],
+    'crime_scene': ['scene', 'crime scene', 'olay yeri', 'sahne', 'suç mahalli'],
+    'victim_house': ['house', 'home', 'residence', 'victim house', 'ev', 'konut', 'kurban evi'],
+    'office': ['office', 'workplace', 'ofis', 'iş yeri', 'büro'],
+    'warehouse': ['warehouse', 'storage', 'depo', 'ambar'],
     'park': ['park', 'garden', 'bahçe']
   };
   
-  const objectTargets = {
-    'desk': ['desk', 'table', 'masa', 'çalışma masası'],
-    'floor': ['floor', 'ground', 'zemin', 'yer'],
-    'window': ['window', 'cam', 'pencere'],
-    'door': ['door', 'entrance', 'kapı', 'giriş'],
-    'body': ['body', 'victim', 'corpse', 'ceset', 'kurban'],
-    'wall': ['wall', 'duvar'],
-    'drawer': ['drawer', 'cabinet', 'çekmece', 'dolap'],
-    'phone': ['phone', 'mobile', 'telefon', 'cep telefonu'],
-    'computer': ['computer', 'laptop', 'pc', 'bilgisayar'],
-    'safe': ['safe', 'vault', 'kasa'],
-    'bloodstain': ['blood', 'bloodstain', 'stain', 'kan', 'leke'],
-    'weapon': ['weapon', 'gun', 'knife', 'silah', 'bıçak', 'tabanca']
-  };
+  // Define move keywords
+  const moveKeywords = ['go to', 'move to', 'travel to', 'visit', 'git', 'geç', 'yürü', 'gidelim', 'gidiyorum'];
   
-  // Check for INSPECT action
-  for (const keyword of inspectKeywords) {
-    if (msg.includes(keyword)) {
-      // Try to find object target
-      for (const [objectKey, synonyms] of Object.entries(objectTargets)) {
-        if (synonyms.some(syn => msg.includes(syn))) {
-          return { action: 'inspect', target: objectKey, keywords: [keyword, objectKey] };
-        }
-      }
-      // Generic inspect
-      return { action: 'inspect', target: 'generic', keywords: [keyword] };
-    }
-  }
+  // Check if user wants to MOVE to a location
+  const hasMoveIntent = moveKeywords.some(keyword => msg.includes(keyword));
   
-  // Check for MOVE action
-  for (const keyword of moveKeywords) {
-    if (msg.includes(keyword)) {
-      // Try to find location target
-      for (const [locKey, synonyms] of Object.entries(locationTargets)) {
-        if (synonyms.some(syn => msg.includes(syn))) {
-          return { action: 'move', target: locKey, keywords: [keyword, locKey] };
-        }
+  if (hasMoveIntent) {
+    for (const [locKey, synonyms] of Object.entries(locationTargets)) {
+      if (synonyms.some(syn => msg.includes(syn))) {
+        console.log(`[INTENT] 🚶 Move action detected to: "${locKey}"`);
+        return { action: 'move', target: locKey, keywords: ['move', locKey] };
       }
     }
   }
   
-  // Check for TALK action (interrogate suspects)
+  // ============================================================================
+  // PHASE 3: TALK/INTERROGATE ACTIONS
+  // ============================================================================
+  
+  const talkKeywords = ['talk to', 'speak to', 'ask', 'interrogate', 'question', 'interview', 'konuş', 'sor', 'sorgula'];
+  
   for (const keyword of talkKeywords) {
     if (msg.includes(keyword)) {
+      console.log(`[INTENT] 🗣️ Talk action detected`);
       return { action: 'talk', target: 'suspect', keywords: [keyword] };
     }
   }
   
-  // Default: general chat
+  // ============================================================================
+  // PHASE 4: FALLBACK - General Chat
+  // ============================================================================
+  
+  // If no target or specific action detected, treat as general conversation
+  console.log(`[INTENT] 💬 No specific target/action - treating as chat`);
   return { action: 'chat', target: null, keywords: [] };
 }
 
@@ -205,11 +267,17 @@ function updateGameState(intent, currentGameState, caseData) {
         continue; // Evidence not at this location
       }
       
-      // Check if target matches evidence name or description
+      // IMPROVED: Match target against evidence
+      // 1. Direct ID match (if target is evidence ID like "E01")
+      // 2. Target appears in evidence name
+      // 3. Target appears in evidence description
+      // 4. Evidence name contains target
+      const targetLower = target.toLowerCase();
       const targetMatches = 
-        evidenceName.includes(target) || 
-        evidenceDesc.includes(target) ||
-        target === 'generic'; // Generic inspect can find any evidence
+        evidenceId === target ||                    // Exact ID match
+        evidenceName.includes(targetLower) ||       // Target in name
+        evidenceDesc.includes(targetLower) ||       // Target in description
+        targetLower.includes(evidenceName);         // Name in target (e.g., target="bookshelf", name="book")
       
       if (targetMatches) {
         // FOUND NEW EVIDENCE!
@@ -217,14 +285,14 @@ function updateGameState(intent, currentGameState, caseData) {
         newState.unlockedClues = [...unlockedClues, evidenceId];
         newState.stuckCounter = 0; // Reset stuck counter
         progressMade = true;
-        console.log(`[GAME-LOGIC] ✅ Unlocked evidence: ${evidenceId}`);
+        console.log(`[GAME-LOGIC] ✅ Unlocked evidence: ${evidenceId} (matched target: ${target})`);
       }
     }
     
     // If no evidence found, increment stuck counter
     if (!progressMade) {
       newState.stuckCounter = (newState.stuckCounter || 0) + 1;
-      console.log(`[GAME-LOGIC] ⚠️ No evidence found. Stuck counter: ${newState.stuckCounter}`);
+      console.log(`[GAME-LOGIC] ⚠️ No evidence found for target '${target}' at '${currentLocation}'. Stuck counter: ${newState.stuckCounter}`);
     }
   }
   
@@ -574,8 +642,8 @@ app.post('/api/chat', async (req, res) => {
     // NEW: INTENT PARSING & GAME STATE UPDATE
     // ============================================================================
     
-    // Step 1: Parse user's intent
-    const intent = parseIntent(message);
+    // Step 1: Parse user's intent (with caseData for dynamic target detection)
+    const intent = parseIntent(message, caseData);
     console.log("[INTENT] Parsed:", JSON.stringify(intent));
     
     // Step 2: Update game state based on intent
