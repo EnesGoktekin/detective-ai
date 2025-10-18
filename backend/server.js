@@ -848,6 +848,32 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: "Missing sessionId. Please create a game session first." });
     }
 
+    // ============================================================================
+    // LAYER 2: ROBUST INPUT VALIDATION (Spam/Empty Message Prevention)
+    // ============================================================================
+    
+    // Sanitize: Remove leading/trailing whitespace
+    const sanitizedMessage = message.trim();
+    
+    // Check 1: Minimum length (at least 3 characters)
+    if (sanitizedMessage.length < 3) {
+      console.log('[INPUT-VALIDATION] Message too short:', sanitizedMessage);
+      return res.status(400).json({ 
+        error: "Input is too short or contains no meaningful characters. Please send a valid instruction or question." 
+      });
+    }
+    
+    // Check 2: Must contain at least 1 alphabetic character (not just symbols/numbers)
+    const alphabeticCount = (sanitizedMessage.match(/[a-zA-ZğüşıöçĞÜŞİÖÇ]/g) || []).length;
+    if (alphabeticCount < 1) {
+      console.log('[INPUT-VALIDATION] No alphabetic characters found:', sanitizedMessage);
+      return res.status(400).json({ 
+        error: "Input is too short or contains no meaningful characters. Please send a valid instruction or question." 
+      });
+    }
+    
+    console.log('[INPUT-VALIDATION] ✅ Message passed validation:', sanitizedMessage);
+
     // Gemini API Key (prefer GEMINI_API_KEY, fallback GOOGLE_API_KEY)
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) {
@@ -898,7 +924,7 @@ app.post('/api/chat', async (req, res) => {
       // NOTE: No correctAccusation, no full evidence list - AI sees only via Secret Vault
     };
     
-    console.log("[DEBUG] User Message:", message);
+    console.log("[DEBUG] User Message (sanitized):", sanitizedMessage);
     console.log("[DEBUG] Case ID:", caseId);
     console.log("[DEBUG] Session ID:", sessionId);
     
@@ -906,7 +932,7 @@ app.post('/api/chat', async (req, res) => {
     // STEP 3: PARSE INTENT (BLIND MAP ARCHITECTURE)
     // ============================================================================
     
-    const intent = parseIntent(message, caseData, gameState);
+    const intent = parseIntent(sanitizedMessage, caseData, gameState);
     console.log("[INTENT] Parsed:", JSON.stringify(intent));
     
     // ============================================================================
@@ -932,7 +958,7 @@ app.post('/api/chat', async (req, res) => {
     // Prepare user message with dynamic summary (contains new clue descriptions)
     const userMessageWithContext = `${dynamicGameStateSummary}
 
-USER MESSAGE: ${message}`;
+USER MESSAGE: ${sanitizedMessage}`;
     
     // Get chat history from gameState (persistent, not from request body)
     const chatHistory = Array.isArray(newState.chatHistory) ? newState.chatHistory : [];
@@ -998,10 +1024,10 @@ USER MESSAGE: ${message}`;
     // STEP 7: PERSIST CHAT HISTORY TO DATABASE
     // ============================================================================
     
-    // Append user message and AI response to chat history
+    // Append user message and AI response to chat history (use sanitized message)
     newState.chatHistory = [
       ...chatHistory,
-      { role: 'user', content: message },
+      { role: 'user', content: sanitizedMessage },
       { role: 'model', content: cleanedText }
     ];
     
