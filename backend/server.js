@@ -592,8 +592,13 @@ app.get('/api/cases', async (req, res) => {
     res.json(safeCases);
     
   } catch (error) {
-    console.error("[CASES-LIST-ERROR]:", error);
-    res.status(500).json({ error: 'Failed to fetch cases. Please try again.' });
+    console.error("[CASES-LIST-ERROR] Full error:", error);
+    console.error("[CASES-LIST-ERROR] Error message:", error.message);
+    console.error("[CASES-LIST-ERROR] Error details:", error.details);
+    res.status(500).json({ 
+      error: 'Failed to load cases',
+      details: error.message || 'Unknown error'
+    });
   }
 });
 
