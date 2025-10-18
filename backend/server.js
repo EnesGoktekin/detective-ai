@@ -565,6 +565,76 @@ app.post('/api/sessions', async (req, res) => {
 });
 
 /**
+ * DELETE /api/sessions/:sessionId - Delete a specific game session
+ * Used when: Starting new game, exiting without saving, or finishing game
+ * Requires SERVICE_ROLE_KEY to bypass RLS
+ */
+app.delete('/api/sessions/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    // Input validation: Check if sessionId is provided
+    if (!sessionId) {
+      return res.status(400).json({ 
+        error: 'Missing sessionId parameter' 
+      });
+    }
+    
+    // Input validation: Check if sessionId looks like a valid UUID
+    // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (8-4-4-4-12 hex digits)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(sessionId)) {
+      return res.status(400).json({ 
+        error: 'Invalid sessionId format. Must be a valid UUID.' 
+      });
+    }
+    
+    console.log(`[SESSION-DELETE] Attempting to delete session: ${sessionId}`);
+    
+    // Delete session from database using SERVICE_ROLE_KEY (bypasses RLS)
+    const { data, error } = await supabase
+      .from('game_sessions')
+      .delete()
+      .eq('session_id', sessionId)
+      .select(); // Returns deleted row(s) to verify deletion
+    
+    if (error) {
+      console.error('[SESSION-DELETE-ERROR]:', {
+        sessionId,
+        error: error.message,
+        code: error.code,
+        details: error.details
+      });
+      throw error;
+    }
+    
+    // Check if any row was actually deleted
+    if (!data || data.length === 0) {
+      console.warn(`[SESSION-DELETE] Session not found: ${sessionId}`);
+      return res.status(404).json({ 
+        error: 'Session not found',
+        sessionId 
+      });
+    }
+    
+    console.log(`[SESSION-DELETE] Successfully deleted session: ${sessionId}`);
+    
+    res.status(200).json({ 
+      message: 'Session deleted successfully',
+      sessionId,
+      deletedAt: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('[SESSION-DELETE-ERROR] Catch block:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete session',
+      details: error.message || 'Unknown error'
+    });
+  }
+});
+
+/**
  * GET /api/cases - Fetch case list for frontend menu
  * IMPORTANT: Queries case_screen table (NOT cases table)
  * case_screen = RLS disabled, public menu data only
