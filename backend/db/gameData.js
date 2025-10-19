@@ -38,6 +38,11 @@ export async function getCaseData(supabase, caseId) {
 
         if (error) throw error;
 
+        // --- YENİ HATA AYIKLAMA LOGU ---
+        // Veritabanından gelen 'location_data'nın tam yapısını görelim.
+        console.log('[DEBUG] Raw location_data from DB:', JSON.stringify(caseData?.location_data, null, 2));
+        // --- BİTİŞ ---
+
         const evidenceTruth = Array.isArray(caseData?.evidence_truth) ? caseData.evidence_truth : [];
 
         return {
@@ -191,3 +196,4 @@ export async function saveGameState(supabase, sessionId, newState) {
         throw err;
     }
 }
+
