@@ -448,29 +448,8 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-app.get('/api/cases', async (_req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('cases')
-      .select('id, title, synopsis, case_number')
-      .order('created_at', { ascending: true });
-    
-    if (error) throw error;
-    
-    // Map to match frontend expectation (caseNumber instead of case_number)
-    const cases = data.map(c => ({
-      id: c.id,
-      title: c.title,
-      synopsis: c.synopsis,
-      caseNumber: c.case_number
-    }));
-    
-    res.json(cases);
-  } catch (error) {
-    console.error('HATA /api/cases:', error);
-    res.status(500).json({ error: 'Failed to load cases' });
-  }
-});
+// Legacy direct /api/cases handler removed. Use the helper-based route below which
+// calls getCaseSummaries(supabase) and enforces the new centralized DB access policy.
 
 // Create or get existing game session
 app.post('/api/sessions', async (req, res) => {
