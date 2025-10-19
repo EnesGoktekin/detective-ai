@@ -38,9 +38,20 @@ export async function getCaseData(supabase, caseId) {
 
         if (error) throw error;
 
-        // --- YENİ HATA AYIKLAMA LOGU ---
-        // Veritabanından gelen 'location_data'nın tam yapısını görelim.
-        console.log('[DEBUG] Raw location_data from DB:', JSON.stringify(caseData?.location_data, null, 2));
+        // --- GÜVENLİK GÜNCELLEMESİ VE HATA AYIKLAMA ---
+        // Veritabanından gelen verinin tipini kontrol edelim.
+        console.log('[DEBUG] Type of location_data from DB:', typeof caseData?.location_data);
+        
+        let parsedLocations = caseData?.location_data;
+        if (typeof parsedLocations === 'string') {
+            try {
+                parsedLocations = JSON.parse(parsedLocations);
+                console.log('[DEBUG] Successfully parsed location_data from string to object.');
+            } catch (e) {
+                console.error('[DB-HELPER] Failed to parse location_data JSON string:', e);
+                parsedLocations = []; // Hata durumunda boş dizi döndür.
+            }
+        }
         // --- BİTİŞ ---
 
         const evidenceTruth = Array.isArray(caseData?.evidence_truth) ? caseData.evidence_truth : [];
@@ -50,7 +61,7 @@ export async function getCaseData(supabase, caseId) {
             title: caseData.title,
             synopsis: caseData.synopsis,
             caseNumber: caseData.case_number,
-            location_data: caseData.location_data || [], // Sütun adı 'location_data' olarak güncellendi
+            location_data: parsedLocations || [], // Sütun adı 'location_data' olarak güncellendi ve PARSE EDİLMİŞ VERİ KULLANILDI
             victims: caseData.victims || {},
             suspects: caseData.suspects || [],
             evidence_truth: evidenceTruth,
@@ -80,11 +91,18 @@ export async function getFullCaseInfo(supabase, caseId) {
 
         if (error) throw error;
 
+        // --- GÜVENLİK GÜNCELLEMESİ ---
+        let parsedLocations = caseRow?.location_data;
+        if (typeof parsedLocations === 'string') {
+            parsedLocations = JSON.parse(parsedLocations);
+        }
+        // --- BİTİŞ ---
+
         return {
             id: caseRow.case_id,
             title: caseRow.title,
             synopsis: caseRow.synopsis,
-            locations: caseRow.location_data || [],
+            locations: parsedLocations || [],
             caseNumber: caseRow.case_number,
             victim: caseRow.victims || {},
             suspects: caseRow.suspects || [],
