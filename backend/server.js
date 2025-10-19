@@ -501,11 +501,8 @@ app.post('/api/sessions', async (req, res) => {
     // }
 
     // Yeni Mimari: Başlangıç verisini helper'dan çek
-    const { data: caseData, error: caseError } = await getCaseData(supabase, caseId);
-    if (caseError) {
-      console.error('HATA /api/sessions (getCaseData):', caseError);
-      return res.status(500).json({ message: 'Error fetching case data for new session' });
-    }
+    // YENİ DÜZELTME: getCaseData doğrudan nesneyi döndürür, .data/.error yapısı yok
+    const caseData = await getCaseData(supabase, caseId);
 
     // Extract first location from locations JSONB array (use helper-provided structure)
     const locations = caseData.location_data || caseData.locations || [];
