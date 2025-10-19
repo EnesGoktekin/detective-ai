@@ -116,6 +116,19 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const lastRequestTimestamps = {};
 
 // ============================================
+// ANTI-SPAM: Consecutive Message Repetition Block
+// ============================================
+
+// Multilingual warning messages for repetition detection
+const REPETITION_WARNINGS = {
+  EN: "Partner, you just sent this message. If you're stuck, please try a new approach or investigate a different object.",
+  TR: "Partner, bu mesajı az önce yolladın. Eğer tıkandıysan, yeni bir fikir dene veya bulunduğun mekanı değiştir."
+};
+
+// Maximum consecutive identical messages allowed
+const REPETITION_LIMIT = 3;
+
+// ============================================
 // GAME LOGIC: Blind Map / Secret Vault Architecture
 // ============================================
 
@@ -932,6 +945,43 @@ app.post('/api/chat', async (req, res) => {
 
     const gameState = sessionData.game_state;
     console.log("[DEBUG] Current Game State:", JSON.stringify(gameState, null, 2));
+
+    // ============================================================================
+    // ANTI-SPAM: CONSECUTIVE MESSAGE REPETITION BLOCK (Zero Token Usage)
+    // ============================================================================
+    
+    // Check if user is sending the same message 3 times in a row
+    const previousChatHistory = Array.isArray(gameState.chatHistory) ? gameState.chatHistory : [];
+    
+    // Get last 2 user messages (excluding current one)
+    const previousUserMessages = previousChatHistory
+      .filter(msg => msg.role === 'user')
+      .map(msg => msg.content);
+    
+    // Check if we have at least 2 previous user messages
+    if (previousUserMessages.length >= 2) {
+      const lastMessage = previousUserMessages[previousUserMessages.length - 1];
+      const secondLastMessage = previousUserMessages[previousUserMessages.length - 2];
+      
+      // Check if current message matches the last 2 messages (3rd repetition)
+      if (sanitizedMessage === lastMessage && sanitizedMessage === secondLastMessage) {
+        console.log('[REPETITION-BLOCK] 🚫 User repeated same message 3 times:', sanitizedMessage);
+        
+        // Detect language: Check for Turkish characters (ğüşıöçĞÜŞİÖÇ)
+        const isTurkish = /[ğüşıöçĞÜŞİÖÇ]/.test(sanitizedMessage);
+        const warningMessage = isTurkish ? REPETITION_WARNINGS.TR : REPETITION_WARNINGS.EN;
+        
+        console.log('[REPETITION-BLOCK] Language detected:', isTurkish ? 'TR' : 'EN');
+        console.log('[REPETITION-BLOCK] Blocking message without API call (zero token usage)');
+        
+        // Return 200 OK with warning message (no API call, no token usage)
+        return res.status(200).json({ 
+          responseText: warningMessage 
+        });
+      }
+    }
+    
+    console.log('[REPETITION-BLOCK] ✅ Message is unique or not a 3rd repetition');
 
     // Fetch case data from Supabase (Blind Map: only locations structure)
     const { data: caseInfo, error: caseError } = await supabase
