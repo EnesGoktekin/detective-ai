@@ -128,8 +128,7 @@ const REPETITION_WARNINGS = {
 // Maximum consecutive identical messages allowed
 const REPETITION_LIMIT = 3;
 
-// Severe hard-block for extreme repetition
-const SEVERE_REPETITION_LIMIT = 10;
+// ...existing code...
 
 // ============================================
 // GAME LOGIC: Blind Map / Secret Vault Architecture
