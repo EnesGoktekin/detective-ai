@@ -488,20 +488,27 @@ app.post('/api/sessions', async (req, res) => {
     // NEW: Fetch dynamic starting location and scene description from database
     // ============================================================================
     
-    // Fetch case data to get locations JSONB
-    const { data: caseData, error: caseError } = await supabase
-      .from('cases')
-      .select('locations')
-      .eq('id', caseId)
-      .single();
-    
-    if (caseError || !caseData) {
-      console.error("[CASE-FETCH-ERROR]:", caseError);
-      throw new Error(`Failed to fetch case data for caseId: ${caseId}`);
+    // Fetch case data to get locations JSONB (migrated to helper)
+    // Old raw query commented out for audit:
+    // const { data: caseData, error: caseError } = await supabase
+    //   .from('cases')
+    //   .select('locations')
+    //   .eq('id', caseId)
+    //   .single();
+    // if (caseError || !caseData) {
+    //   console.error("[CASE-FETCH-ERROR]:", caseError);
+    //   throw new Error(`Failed to fetch case data for caseId: ${caseId}`);
+    // }
+
+    // Yeni Mimari: Başlangıç verisini helper'dan çek
+    const { data: caseData, error: caseError } = await getCaseData(supabase, caseId);
+    if (caseError) {
+      console.error('HATA /api/sessions (getCaseData):', caseError);
+      return res.status(500).json({ message: 'Error fetching case data for new session' });
     }
-    
-    // Extract first location from locations JSONB array
-    const locations = caseData.locations || [];
+
+    // Extract first location from locations JSONB array (use helper-provided structure)
+    const locations = caseData.location_data || caseData.locations || [];
     if (locations.length === 0) {
       throw new Error(`Case ${caseId} has no locations defined`);
     }
@@ -530,7 +537,8 @@ app.post('/api/sessions', async (req, res) => {
       interrogatedSuspects: [],
       knownLocations: [startingLocationId],    // Dynamic from database
       stuckCounter: 0,
-      chatHistory: [firstMessage]              // NEW: Inject dynamic first message
+      chatHistory: [firstMessage],             // NEW: Inject dynamic first message
+      locations: caseData.location_data || caseData.locations || []
     };
 
   // Old raw insert (migrated to helper and removed from top-level code)
