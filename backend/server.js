@@ -9,6 +9,12 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getCaseSummaries, getCaseData, getFullCaseInfo, getSessionStateAndProgress, createSession, deleteSession, fetchLatestSession, readGameState, saveGameState } from './db/gameData.js';
+
+// NOTE: All legacy raw 'cases', 'clues', 'case_screen', and 'game_sessions' queries
+// were removed from top-level code paths and migrated into centralized helpers in
+// `backend/db/gameData.js`. This file now only calls helpers; raw DB access was
+// intentionally removed to protect the schema and centralize migration logic.
 
 // Load .env from project root
 const __filename = fileURLToPath(import.meta.url);
@@ -255,23 +261,12 @@ async function updateGameState(intent, currentGameState, caseData) {
   // ============================================================================
   
   if (action === 'inspect' && target_id) {
-    // Query clues table for this object
-    const { data: cluesData, error: cluesError } = await supabase
-      .from('clues')
-      .select('*')
-      .eq('linked_object_id', target_id)
-      .eq('case_id', caseData.id);
-    
-    if (cluesError) {
-      console.error(`[GAME-LOGIC] Failed to query clues for ${target_id}:`, cluesError);
-      // Treat as Red Herring (valid investigation, no clues)
-      progressMade = true;
-      newState.stuckCounter = 0;
-      return { newState, progressMade, newClues };
-    }
-    
-    const clues = cluesData || [];
-    console.log(`[GAME-LOGIC] Found ${clues.length} clue(s) for object '${target_id}'`);
+  // OLD: Query clues table for this object (migrated to caseData.evidence_truth)
+
+    // New: search caseData.evidence_truth (in-memory) for evidence linked to the target_id
+    const allEvidence = Array.isArray(caseData.evidence_truth) ? caseData.evidence_truth : [];
+    const clues = allEvidence.filter(e => e.trigger_object_id === target_id || e.linked_object_id === target_id || e.id === target_id);
+    console.log(`[GAME-LOGIC] (helper) Found ${clues.length} evidence item(s) for object '${target_id}' from caseData.evidence_truth`);
     
     if (clues.length === 0) {
       // RED HERRING: No clues, but valid investigation
@@ -549,32 +544,23 @@ app.post('/api/sessions', async (req, res) => {
       content: startingSceneDescription
     };
     
-    // Create new session with dynamic game state
-    // NOTE: user_id removed - column doesn't exist in game_sessions table
-    const { data: newSession, error: createError } = await supabase
-      .from('game_sessions')
-      .insert({
-        case_id: caseId,
-        game_state: {
-          currentLocation: startingLocationId,     // Dynamic from database
-          unlockedClues: [],
-          interrogatedSuspects: [],
-          knownLocations: [startingLocationId],    // Dynamic from database
-          stuckCounter: 0,
-          chatHistory: [firstMessage]              // NEW: Inject dynamic first message
-        }
-      })
-      .select()
-      .single();
+    // Create new session with dynamic game state via helper
+    const initialGameState = {
+      currentLocation: startingLocationId,     // Dynamic from database
+      unlockedClues: [],
+      interrogatedSuspects: [],
+      knownLocations: [startingLocationId],    // Dynamic from database
+      stuckCounter: 0,
+      chatHistory: [firstMessage]              // NEW: Inject dynamic first message
+    };
 
-    if (createError) {
-      console.error("[SESSION-CREATE-ERROR]:", createError);
-      throw createError;
-    }
+  // Old raw insert (migrated to helper and removed from top-level code)
 
-    console.log("[SESSION] Created new session:", newSession.session_id);
+    const newSession = await createSession(supabase, userId, caseId, initialGameState);
+
+    console.log("[SESSION] Created new session via helper:", newSession.session_id);
     console.log("[SESSION] Initial chat history injected with scene description");
-    
+
     res.json({
       sessionId: newSession.session_id,
       gameState: newSession.game_state,  // Includes chatHistory with firstMessage
@@ -614,34 +600,23 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
     
     console.log(`[SESSION-DELETE] Attempting to delete session: ${sessionId}`);
     
-    // Delete session from database using SERVICE_ROLE_KEY (bypasses RLS)
-    const { data, error } = await supabase
-      .from('game_sessions')
-      .delete()
-      .eq('session_id', sessionId)
-      .select(); // Returns deleted row(s) to verify deletion
-    
-    if (error) {
-      console.error('[SESSION-DELETE-ERROR]:', {
-        sessionId,
-        error: error.message,
-        code: error.code,
-        details: error.details
-      });
-      throw error;
-    }
-    
-    // Check if any row was actually deleted
-    if (!data || data.length === 0) {
+    // Delete session using centralized helper (keeps single table behavior for now)
+    // Old raw delete (kept for audit):
+    // const { data, error } = await supabase.from('game_sessions').delete().eq('session_id', sessionId).select();
+
+    const deletedRows = await deleteSession(supabase, sessionId);
+
+    // deleteSession returns deleted rows (if any)
+    if (!deletedRows || deletedRows.length === 0) {
       console.warn(`[SESSION-DELETE] Session not found: ${sessionId}`);
       return res.status(404).json({ 
         error: 'Session not found',
         sessionId 
       });
     }
-    
-    console.log(`[SESSION-DELETE] Successfully deleted session: ${sessionId}`);
-    
+
+    console.log(`[SESSION-DELETE] Successfully deleted session via helper: ${sessionId}`);
+
     res.status(200).json({ 
       message: 'Session deleted successfully',
       sessionId,
@@ -677,32 +652,17 @@ app.get('/api/sessions/latest', async (req, res) => {
     
     console.log(`[SESSION-LATEST] Checking for latest session for case: ${caseId}`);
     
-    // Query for most recent session for this case
-    // maybeSingle() returns one row or null (doesn't throw error if no rows found)
-    const { data, error } = await supabase
-      .from('game_sessions')
-      .select('session_id, created_at')
-      .eq('case_id', caseId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    
-    if (error) {
-      console.error('[SESSION-LATEST-ERROR]:', {
-        caseId,
-        error: error.message,
-        code: error.code,
-        details: error.details
-      });
-      throw error;
-    }
-    
+    // Query for most recent session for this case using helper
+    // Old raw query (kept for audit):
+    // const { data, error } = await supabase.from('game_sessions').select('session_id, created_at').eq('case_id', caseId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    const latest = await fetchLatestSession(supabase, caseId);
+
     // If session found
-    if (data) {
-      console.log(`[SESSION-LATEST] Found session: ${data.session_id} (created: ${data.created_at})`);
+    if (latest) {
+      console.log(`[SESSION-LATEST] Found session: ${latest.session_id} (created: ${latest.created_at})`);
       return res.status(200).json({ 
-        latestSessionId: data.session_id,
-        createdAt: data.created_at
+        latestSessionId: latest.session_id,
+        createdAt: latest.created_at
       });
     }
     
@@ -730,40 +690,16 @@ app.get('/api/sessions/latest', async (req, res) => {
  */
 app.get('/api/cases', async (req, res) => {
   try {
-    console.log("[MENU-API] Fetching from case_screen table...");
-    
-    // Query case_screen table for menu display
-    const { data: caseScreenRows, error: caseScreenError } = await supabase
-      .from('case_screen')
-      .select('*');
-    
-    if (caseScreenError) {
-      console.error("[MENU-API-ERROR] Supabase error from case_screen table:", {
-        message: caseScreenError.message,
-        details: caseScreenError.details,
-        hint: caseScreenError.hint,
-        code: caseScreenError.code
-      });
-      throw caseScreenError;
-    }
-    
-    // Return empty array if no cases found
-    if (!caseScreenRows || caseScreenRows.length === 0) {
-      console.log("[MENU-API] No cases found in case_screen table");
+    console.log("[MENU-API] Fetching case summaries via helper getCaseSummaries...");
+
+  // Use helper to fetch menu summaries (migrated from direct case_screen query)
+    const menuCases = await getCaseSummaries(supabase);
+
+    if (!Array.isArray(menuCases) || menuCases.length === 0) {
+      console.log("[MENU-API] No cases found via helper");
       return res.json([]);
     }
-    
-    console.log(`[MENU-API] Success! Fetched ${caseScreenRows.length} cases from case_screen`);
-    console.log("[MENU-API] First row structure:", JSON.stringify(caseScreenRows[0]));
-    
-    // Map to frontend format
-    const menuCases = caseScreenRows.map(row => ({
-      id: row.id,
-      title: row.title,
-      synopsis: row.synopsis,
-      caseNumber: row.case_number || row.casenumber || row.caseNumber || '001'
-    }));
-    
+
     res.json(menuCases);
     
   } catch (error) {
@@ -785,65 +721,36 @@ app.get('/api/cases/:caseId', async (req, res) => {
   try {
     const { caseId } = req.params;
     
-    // Fetch case from new database structure (all in 'cases' table)
-    const { data: caseData, error } = await supabase
-      .from('cases')
-      .select('*')
-      .eq('id', caseId)
-      .single();
-    
-    if (error) {
-      console.error(`[CASE-DETAIL-ERROR] Case ${caseId}:`, error);
-      throw error;
-    }
-    
+    // Use helper getCaseData which provides canonical evidence under evidence_truth
+  // Old raw query removed - case data reads migrated to helpers
+    const caseData = await getCaseData(supabase, caseId);
+
     if (!caseData) {
       return res.status(404).json({ error: 'Case not found' });
     }
-    
-    // Fetch all clues (evidence) for this case
-    const { data: cluesData, error: cluesError } = await supabase
-      .from('clues')
-      .select('id, name, description')
-      .eq('case_id', caseId);
-    
-    if (cluesError) {
-      console.error(`[CASE-DETAIL-ERROR] Failed to fetch clues for case ${caseId}:`, cluesError);
-    }
-    
-    const evidence = (cluesData || []).map(clue => ({
-      id: clue.id,
-      name: clue.name,
-      description: clue.description
-    }));
-    
-    console.log(`[CASE-DETAIL] Fetched ${evidence.length} evidence items for case: ${caseData.title}`);
-    
-    // Map to frontend format (NEW DATABASE STRUCTURE)
+
+  // NOTE: Previously the code queried the 'clues' table for evidence. The canonical evidence
+  // list is now stored in caseData.evidence_truth JSONB and is accessed in-memory.
+
+    const evidence = Array.isArray(caseData.evidence_truth) ? caseData.evidence_truth.map(e => ({
+      id: e.id,
+      name: e.name,
+      description: e.description
+    })) : [];
+
     const response = {
       id: caseData.id,
       title: caseData.title,
       synopsis: caseData.synopsis,
-      caseNumber: caseData.case_number,
-      
-      // NEW: locations (Blind Map) - JSONB column
+      caseNumber: caseData.case_number || caseData.caseNumber,
       locations: caseData.locations || [],
-      
-      // Victim info - JSONB column
       victim: caseData.victim || {},
-      
-      // Suspects list - JSONB column
       suspects: caseData.suspects || [],
-      
-      // Evidence list (from clues table)
-      evidence: evidence,
-      
-      // Solution (NOT sent to AI, only for accusation check)
+      evidence,
       correctAccusation: caseData.correctaccusation || {}
     };
-    
-    console.log(`[CASE-DETAIL] Fetched case: ${caseData.title}`);
-    
+
+    console.log(`[CASE-DETAIL] Fetched case via helper: ${caseData.title}`);
     res.json(response);
   } catch (error) {
     console.error(`[CASE-DETAIL-ERROR] /api/cases/${req.params.caseId}:`, error);
@@ -933,19 +840,17 @@ app.post('/api/chat', async (req, res) => {
     // STEP 2: FETCH GAME SESSION & CASE DATA
     // ============================================================================
     
-    // Fetch game session state from Supabase
-    const { data: sessionData, error: sessionError } = await supabase
-      .from('game_sessions')
-      .select('game_state')
-      .eq('session_id', sessionId)
-      .single();
-    
-    if (sessionError || !sessionData) {
-      console.error("[SESSION-ERROR] Failed to fetch session:", sessionError);
+    // Fetch game session state from Supabase (via helper)
+    // Old raw query (kept for audit):
+    // const { data: sessionData, error: sessionError } = await supabase.from('game_sessions').select('game_state').eq('session_id', sessionId).single();
+    const sessionRow = await readGameState(supabase, sessionId);
+
+    if (!sessionRow) {
+      console.error("[SESSION-ERROR] Failed to fetch session or session not found");
       return res.status(404).json({ error: "Game session not found. Please start a new session." });
     }
 
-    const gameState = sessionData.game_state;
+    const gameState = sessionRow.game_state;
     console.log("[DEBUG] Current Game State:", JSON.stringify(gameState, null, 2));
 
     // ============================================================================
@@ -985,29 +890,42 @@ app.post('/api/chat', async (req, res) => {
     
     console.log('[REPETITION-BLOCK] ✅ Message is unique or not a 3rd repetition');
 
-    // Fetch case data from Supabase (Blind Map: only locations structure)
-    const { data: caseInfo, error: caseError } = await supabase
-      .from('cases')
-      .select('id, title, synopsis, case_number, locations')
-      .eq('id', caseId)
-      .single();
-    
-    if (caseError) {
-      console.error("[CASE-ERROR] Failed to fetch case:", caseError);
-      throw caseError;
+  // Fetch full case data via helper (includes canonical evidence in evidence_truth)
+  const caseData = await getCaseData(supabase, caseId);
+
+    if (!caseData) {
+      console.error('[CASE-ERROR] Failed to fetch case via helper or case not found:', caseId);
+      return res.status(404).json({ error: 'Case not found' });
     }
-    
+
+    // Defensive: Ensure victim and suspects exist on caseData for downstream game logic
+    caseData.victim = caseData.victim || {};
+    caseData.suspects = Array.isArray(caseData.suspects) ? caseData.suspects : (caseData.suspects || []);
+
     // Parse locations JSONB (Blind Map)
-    const locations = Array.isArray(caseInfo.locations) ? caseInfo.locations : [];
-    
-    const caseData = {
-      id: caseInfo.id,
-      title: caseInfo.title,
-      synopsis: caseInfo.synopsis,
-      caseNumber: caseInfo.case_number,
-      locations: locations
-      // NOTE: No correctAccusation, no full evidence list - AI sees only via Secret Vault
-    };
+    const locations = Array.isArray(caseData.locations) ? caseData.locations : [];
+
+    // Fetch lightweight full-case info from new case_data table to assemble AI prompt
+    // We intentionally do not overwrite `caseData` which the game logic relies on; this is just for prompt fields
+    let caseInfoForPrompt = null;
+    try {
+      const fullCaseInfo = await getFullCaseInfo(supabase, caseId);
+      caseInfoForPrompt = {
+        id: fullCaseInfo.id,
+        title: fullCaseInfo.title,
+        synopsis: fullCaseInfo.synopsis,
+        locations: fullCaseInfo.locations
+      };
+      console.log('[PROMPT] Assembled caseInfoForPrompt from case_data helper');
+    } catch (err) {
+      console.warn('[PROMPT] Could not fetch case_data for prompt assembly, falling back to caseData fields');
+      caseInfoForPrompt = {
+        id: caseData.id,
+        title: caseData.title,
+        synopsis: caseData.synopsis,
+        locations: caseData.locations || []
+      };
+    }
     
     console.log("[DEBUG] User Message (sanitized):", sanitizedMessage);
     console.log("[DEBUG] Case ID:", caseId);
@@ -1116,20 +1034,15 @@ USER MESSAGE: ${sanitizedMessage}`;
       { role: 'model', content: cleanedText }
     ];
     
-    // Save updated game state with chat history
-    const { error: updateError } = await supabase
-      .from('game_sessions')
-      .update({
-        game_state: newState,
-        updated_at: new Date().toISOString()
-      })
-      .eq('session_id', sessionId);
-    
-    if (updateError) {
-      console.error("[SESSION-UPDATE-ERROR] Failed to save game state with chat history:", updateError);
+    // Save updated game state with chat history via helper
+    // Old raw update (kept for audit):
+    // const { error: updateError } = await supabase.from('game_sessions').update({ game_state: newState, updated_at: new Date().toISOString() }).eq('session_id', sessionId);
+    try {
+      await saveGameState(supabase, sessionId, newState);
+      console.log("[SESSION-UPDATE] Game state with chat history saved successfully via helper");
+    } catch (updateError) {
+      console.error("[SESSION-UPDATE-ERROR] Failed to save game state with chat history via helper:", updateError);
       // Don't fail the request, but log the error
-    } else {
-      console.log("[SESSION-UPDATE] Game state with chat history saved successfully");
     }
     
     // ============================================================================

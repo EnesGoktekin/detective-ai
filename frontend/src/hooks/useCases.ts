@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
 import type { CaseSummary } from '../types/contracts.ts';
 
 interface UseCasesResult {
@@ -16,7 +15,7 @@ interface UseCasesResult {
  * This is the DEFINITIVE FIX for the "Failed to fetch cases" error
  */
 export function useCases(): UseCasesResult {
-  console.log('[useCases] Hook initialized - DIRECT SUPABASE MODE');
+  console.log('[useCases] Hook initialized - fetching from backend /api/cases');
   
   const [data, setData] = useState<CaseSummary[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,73 +30,19 @@ export function useCases(): UseCasesResult {
     
     const fetchCases = async () => {
       try {
-        console.log('[useCases] Querying case_screen table directly...');
-        const queryStartTime = Date.now();
-        
-        // Direct Supabase query to case_screen (RLS disabled, public access)
-        const { data: caseScreenData, error: dbError } = await supabase
-          .from('case_screen')
-          .select('id, title, synopsis, case_number')
-          .order('case_number', { ascending: true });
-        
-        const queryDuration = Date.now() - queryStartTime;
-        console.log(`[useCases] Supabase query completed (${queryDuration}ms):`, {
-          hasData: !!caseScreenData,
-          dataLength: caseScreenData?.length || 0,
-          hasError: !!dbError,
-          error: dbError
-        });
-        
-        if (dbError) {
-          console.error('[useCases] Supabase error:', {
-            message: dbError.message,
-            details: dbError.details,
-            hint: dbError.hint,
-            code: dbError.code
-          });
-          throw new Error(dbError.message || 'Database query failed');
-        }
-        
-        if (!caseScreenData || caseScreenData.length === 0) {
-          console.warn('[useCases] No cases found in case_screen table');
-          setData([]);
-          setIsLoading(false);
-          return;
-        }
-        
-        console.log('[useCases] Cases fetched successfully:', {
-          count: caseScreenData.length,
-          cases: caseScreenData
-        });
-        
-        // Map to frontend format
-        const mappedCases: CaseSummary[] = caseScreenData.map(row => ({
-          id: row.id,
-          title: row.title,
-          synopsis: row.synopsis,
-          caseNumber: row.case_number
-        }));
-        
-        console.log('[useCases] Mapped cases:', mappedCases);
-        console.log('[useCases] Setting data state:', mappedCases);
-        setData(mappedCases);
-        
-        console.log('[useCases] Setting isLoading=false (success)');
+        console.log('[useCases] Fetching /api/cases from backend');
+        setIsLoading(true);
+        setError(null);
+
+        const resp = await fetch('/api/cases');
+        if (!resp.ok) throw new Error(`Failed to fetch /api/cases: ${resp.status}`);
+
+        const casesData: CaseSummary[] = await resp.json();
+        setData(casesData || []);
         setIsLoading(false);
-        
       } catch (err: any) {
-        console.error('[useCases] Error caught in catch block:', {
-          error: err,
-          message: err.message,
-          stack: err.stack,
-          name: err.name
-        });
-        
-        const errorMessage = err.message || 'Unknown error';
-        console.log('[useCases] Setting error state:', errorMessage);
-        setError(errorMessage);
-        
-        console.log('[useCases] Setting isLoading=false (error)');
+        console.error('[useCases] Error fetching /api/cases:', err);
+        setError(err?.message || 'Failed to load cases');
         setIsLoading(false);
       }
     };
