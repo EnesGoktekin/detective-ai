@@ -71,3 +71,161 @@ export async function getCaseImmutableRecords(supabase, caseId) {
   }
 }
 
+// ===================================================================================
+// B. DYNAMIC SESSION MANAGEMENT HELPERS
+// ===================================================================================
+
+/**
+ * Creates a new game session by inserting records into session_state and session_progress.
+ *
+ * @param {object} supabase - The Supabase client instance.
+ * @param {string} caseId - The ID of the case being played.
+ * @param {string} initialLocationId - The starting location ID from case_initial_data.
+ * @param {Array} locationData - The full location_data array from case_immutable_records.
+ * @returns {Promise<object>} An object containing the new session_id and initial progress state.
+ */
+export async function createSession(supabase, caseId, initialLocationId, locationData) {
+  const sessionId = uuidv4();
+  const userId = null; // Placeholder for future multi-user support
+
+  // 1. Find the initial location object to set it as the current map state
+  const initialLocation = locationData.find(loc => loc.id === initialLocationId);
+  if (!initialLocation) {
+    throw new Error(`Initial location with ID '${initialLocationId}' not found in locationData.`);
+  }
+
+  // 2. Create the core session state record
+  const { error: stateError } = await supabase
+    .from('session_state')
+    .insert({ session_id: sessionId, user_id: userId, case_id: caseId });
+
+  if (stateError) {
+    console.error(`[DB_HELPER_ERROR] createSession (state): ${stateError.message}`);
+    throw new Error('Failed to create session state.');
+  }
+
+  // 3. Create the initial session progress record
+  const initialProgress = {
+    session_id: sessionId,
+    evidence_log: [],
+    suspect_log: [],
+    chat_history: [],
+    last_five_messages: [],
+    ai_core_summary: 'The investigation has just begun.',
+    current_map_state: [{ ...initialLocation, is_current: true }], // Start with only the initial location visible and marked as current
+  };
+
+  const { data: progressData, error: progressError } = await supabase
+    .from('session_progress')
+    .insert(initialProgress)
+    .select()
+    .single();
+
+  if (progressError) {
+    console.error(`[DB_HELPER_ERROR] createSession (progress): ${progressError.message}`);
+    // Rollback the state creation for consistency
+    await supabase.from('session_state').delete().eq('session_id', sessionId);
+    throw new Error('Failed to create session progress.');
+  }
+
+  return { sessionId, progress: progressData };
+}
+
+/**
+ * Reads all dynamic progress and static state data for a given session.
+ *
+ * @param {object} supabase - The Supabase client instance.
+ * @param {string} sessionId - The unique identifier for the session.
+ * @returns {Promise<object|null>} A unified object with all session data, or null if not found.
+ */
+export async function readSessionProgress(supabase, sessionId) {
+  // 1. Fetch session state (metadata)
+  const { data: stateData, error: stateError } = await supabase
+    .from('session_state')
+    .select('*')
+    .eq('session_id', sessionId)
+    .single();
+
+  if (stateError) {
+    console.error(`[DB_HELPER_ERROR] readSessionProgress (state): ${stateError.message}`);
+    throw new Error('Failed to read session state.');
+  }
+  if (!stateData) return null;
+
+  // 2. Fetch session progress (dynamic data)
+  const { data: progressData, error: progressError } = await supabase
+    .from('session_progress')
+    .select('*')
+    .eq('session_id', sessionId)
+    .single();
+
+  if (progressError) {
+    console.error(`[DB_HELPER_ERROR] readSessionProgress (progress): ${progressError.message}`);
+    throw new Error('Failed to read session progress.');
+  }
+
+  // 3. Combine and return
+  return { ...stateData, ...progressData };
+}
+
+/**
+ * Saves the updated progress data and touches the session_state timestamp.
+ *
+ * @param {object} supabase - The Supabase client instance.
+ * @param {string} sessionId - The ID of the session to update.
+ * @param {object} progressData - The complete progress object to save.
+ */
+export async function saveSessionProgress(supabase, sessionId, progressData) {
+  // 1. Update the session_progress table with the new data
+  const { error: progressError } = await supabase
+    .from('session_progress')
+    .update(progressData)
+    .eq('session_id', sessionId);
+
+  if (progressError) {
+    console.error(`[DB_HELPER_ERROR] saveSessionProgress (progress): ${progressError.message}`);
+    throw new Error('Failed to save session progress.');
+  }
+
+  // 2. Update the `updated_at` timestamp on the session_state table
+  const { error: stateError } = await supabase
+    .from('session_state')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('session_id', sessionId);
+
+  if (stateError) {
+    console.error(`[DB_HELPER_ERROR] saveSessionProgress (state): ${stateError.message}`);
+    // This is not a critical failure, so we just log it.
+  }
+}
+
+/**
+ * Deletes a session permanently from both state and progress tables.
+ *
+ * @param {object} supabase - The Supabase client instance.
+ * @param {string} sessionId - The ID of the session to delete.
+ */
+export async function deleteSession(supabase, sessionId) {
+  // 1. Delete from session_progress first to satisfy foreign key constraints
+  const { error: progressError } = await supabase
+    .from('session_progress')
+    .delete()
+    .eq('session_id', sessionId);
+
+  if (progressError) {
+    console.error(`[DB_HELPER_ERROR] deleteSession (progress): ${progressError.message}`);
+    throw new Error('Failed to delete session progress.');
+  }
+
+  // 2. Delete from session_state
+  const { error: stateError } = await supabase
+    .from('session_state')
+    .delete()
+    .eq('session_id', sessionId);
+
+  if (stateError) {
+    console.error(`[DB_HELPER_ERROR] deleteSession (state): ${stateError.message}`);
+    throw new Error('Failed to delete session state.');
+  }
+}
+
