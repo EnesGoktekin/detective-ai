@@ -111,26 +111,7 @@ const DETECTIVE_SYSTEM_INSTRUCTION = {
 
 // Supabase client is initialized within each route handler for Vercel compatibility.
 
-// ============================================
-// RATE LIMITING (Katman 1): In-Memory Storage
-// ============================================
 
-// Global object to store last request times: { sessionId: timestamp }
-// Note: This is in-memory only. For multi-server deployments, use Redis.
-const lastRequestTimestamps = {};
-
-// ============================================
-// ANTI-SPAM: Consecutive Message Repetition Block
-// ============================================
-
-// Multilingual warning messages for repetition detection
-const REPETITION_WARNINGS = {
-  EN: "Partner, you just sent this message. If you're stuck, please try a new approach or investigate a different object.",
-  TR: "Partner, bu mesajı az önce yolladın. Eğer tıkandıysan, yeni bir fikir dene veya bulunduğun mekanı değiştir."
-};
-
-// Maximum consecutive identical messages allowed
-const REPETITION_LIMIT = 3;
 
 // ============================================
 // GAME LOGIC: Blind Map / Secret Vault Architecture
@@ -488,10 +469,7 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
     
     console.log(`[SESSION-DELETE] Attempting to delete session: ${sessionId}`);
     
-    // Delete session using centralized helper (keeps single table behavior for now)
-    // Old raw delete (kept for audit):
-    // const { data, error } = await supabase.from('game_sessions').delete().eq('session_id', sessionId).select();
-
+    // Delete session using centralized helper
     const deletedRows = await deleteSession(supabase, sessionId);
 
     // deleteSession returns deleted rows (if any)
@@ -546,8 +524,6 @@ app.get('/api/sessions/latest', async (req, res) => {
     console.log(`[SESSION-LATEST] Checking for latest session for case: ${caseId}`);
     
     // Query for most recent session for this case using helper
-    // Old raw query (kept for audit):
-    // const { data, error } = await supabase.from('game_sessions').select('session_id, created_at').eq('case_id', caseId).order('created_at', { ascending: false }).limit(1).maybeSingle();
     const latest = await fetchLatestSession(supabase, caseId);
 
     // If session found
@@ -637,56 +613,7 @@ app.get('/api/cases/:caseId', async (req, res) => {
     const caseData = await getCaseData(supabase, caseId);
 
     if (!caseData) {
-      return res.status(404).json({ error: 'Case not found' });
-    }
-
-  // NOTE: Previously the code queried the 'clues' table for evidence. The canonical evidence
-  // list is now stored in caseData.evidence_truth JSONB and is accessed in-memory.
-
-    const evidence = Array.isArray(caseData.evidence_truth) ? caseData.evidence_truth.map(e => ({
-      id: e.id,
-      name: e.name,
-      description: e.description
-    })) : [];
-
-    const response = {
-      id: caseData.id,
-      title: caseData.title,
-      synopsis: caseData.synopsis,
-      caseNumber: caseData.case_number || caseData.caseNumber,
-      locations: caseData.locations || [],
-      victim: caseData.victim || {},
-      suspects: caseData.suspects || [],
-      evidence,
-      correctAccusation: caseData.correctaccusation || {}
-    };
-
-    console.log(`[CASE-DETAIL] Fetched case via helper: ${caseData.title}`);
-    res.json(response);
-  } catch (error) {
-    console.error(`[CASE-DETAIL-ERROR] /api/cases/${req.params.caseId}:`, error);
-    res.status(404).json({ error: 'Case not found' });
-  }
-});
-
-/**
- * POST /api/chat - COMPLETE REFACTOR (Part 3 Phase 2)
- * Implements Blind Map / Secret Vault architecture with chat history persistence
- */
-app.post('/api/chat', async (req, res) => {
-  try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/chat');
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const { caseId, message, sessionId } = req.body;
-    if (!message || !caseId || !sessionId) {
-      return res.status(400).json({ error: "Missing message, caseId, or sessionId" });
-    }
-
-    // ============================================================================
-    // LAYER 2: ROBUST INPUT VALIDATION (Spam/Empty Message Prevention)
+ // LAYER 2: ROBUST INPUT VALIDATION (Spam/Empty Message Prevention)
     // ============================================================================
     
     // Sanitize: Remove leading/trailing whitespace
@@ -748,8 +675,6 @@ app.post('/api/chat', async (req, res) => {
     // ============================================================================
     
     // Fetch game session state from Supabase (via helper)
-    // Old raw query (kept for audit):
-    // const { data: sessionData, error: sessionError } = await supabase.from('game_sessions').select('game_state').eq('session_id', sessionId).single();
     const sessionRow = await readGameState(supabase, sessionId);
 
     if (!sessionRow) {
@@ -960,8 +885,6 @@ USER MESSAGE: ${sanitizedMessage}`;
     ];
     
     // Save updated game state with chat history via helper
-    // Old raw update (kept for audit):
-    // const { error: updateError } = await supabase.from('game_sessions').update({ game_state: newState, updated_at: new Date().toISOString() }).eq('session_id', sessionId);
     try {
       await saveGameState(supabase, sessionId, newState);
       console.log("[SESSION-UPDATE] Game state with chat history saved successfully via helper");
