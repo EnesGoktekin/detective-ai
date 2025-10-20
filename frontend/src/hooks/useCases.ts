@@ -1,5 +1,14 @@
 import { useState, useEffect } from 'react';
-import type { CaseSummary } from '../types/contracts.ts';
+
+// contracts.ts dosyasında CaseSummary interface'inin tanımlandığını varsayıyoruz.
+// Bu interface, Backend'den gelen camelCase veriyi yansıtmalıdır.
+interface CaseSummary {
+  id: string;
+  caseNumber: number;
+  title: string;
+  synopsis: string;
+  createdAt: string;
+}
 
 interface UseCasesResult {
   data: CaseSummary[] | null;
@@ -8,59 +17,40 @@ interface UseCasesResult {
 }
 
 /**
- * useCases - Fetch case list directly from case_screen table
- * 
- * DIRECT SUPABASE QUERY - Bypasses backend completely
- * case_screen table has RLS DISABLED for public read access
- * This is the DEFINITIVE FIX for the "Failed to fetch cases" error
+ * Custom hook to fetch case summaries from the backend API.
  */
 export function useCases(): UseCasesResult {
-  console.log('[useCases] Hook initialized - fetching from backend /api/cases');
-  
   const [data, setData] = useState<CaseSummary[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    console.log('[useCases] useEffect triggered - starting DIRECT Supabase query');
-    
-    console.log('[useCases] Setting isLoading=true, error=null');
-    setIsLoading(true);
-    setError(null);
-    
     const fetchCases = async () => {
       try {
-        console.log('[useCases] Fetching /api/cases from backend');
         setIsLoading(true);
-        setError(null);
+        const response = await fetch('/api/cases');
 
-        const resp = await fetch('/api/cases');
-        if (!resp.ok) throw new Error(`Failed to fetch /api/cases: ${resp.status}`);
+        if (!response.ok) {
+          // Backend'den gelen hata mesajını yakalamaya çalış
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Failed to fetch cases: ${response.status}`);
+        }
 
-        const casesData: CaseSummary[] = await resp.json();
-        setData(casesData || []);
-        setIsLoading(false);
+        const casesData: CaseSummary[] = await response.json();
+        setData(casesData);
+        setError(null); // Başarılı olduğunda hatayı temizle
       } catch (err: any) {
-        console.error('[useCases] Error fetching /api/cases:', err);
-        setError(err?.message || 'Failed to load cases');
+        console.error("Error fetching cases:", err);
+        // Hata nesnesinden mesajı güvenli şekilde al
+        setError(err.message || 'An unexpected error occurred during fetch.');
+        setData(null);
+      } finally {
         setIsLoading(false);
       }
     };
-    
-    fetchCases();
-    
-    // Cleanup function
-    return () => {
-      console.log('[useCases] useEffect cleanup called');
-    };
-  }, []);
 
-  console.log('[useCases] Returning state:', { 
-    hasData: data !== null, 
-    dataLength: data?.length || 0,
-    isLoading, 
-    error 
-  });
+    fetchCases();
+  }, []);
 
   return { data, isLoading, error };
 }
