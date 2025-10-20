@@ -2,8 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import {
-  getCaseSummaries, // <<< YENİ IMPORT
-} from './db/gameData.js';
+  getCaseSummaries,
+} from '../db/gameData.js';
 
 const app = express();
 app.use(cors());
@@ -116,4 +116,4 @@ app.get('/api/cases', async (req, res) => {
   }
 });
 
-module.exports = app;
+export default app;
