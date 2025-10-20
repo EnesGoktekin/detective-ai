@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 
-// contracts.ts dosyasında CaseSummary interface'inin tanımlandığını varsayıyoruz.
-// Bu interface, Backend'den gelen camelCase veriyi yansıtmalıdır.
+// Backend'den gelen camelCase yapıya uyan temel arayüz
 interface CaseSummary {
   id: string;
   caseNumber: number;
@@ -31,17 +30,16 @@ export function useCases(): UseCasesResult {
         const response = await fetch('/api/cases');
 
         if (!response.ok) {
-          // Backend'den gelen hata mesajını yakalamaya çalış
+          // Hata durumunda bile yanıtı okumayı dene
           const errorData = await response.json().catch(() => ({}));
           throw new Error(errorData.error || `Failed to fetch cases: ${response.status}`);
         }
 
         const casesData: CaseSummary[] = await response.json();
         setData(casesData);
-        setError(null); // Başarılı olduğunda hatayı temizle
+        setError(null);
       } catch (err: any) {
         console.error("Error fetching cases:", err);
-        // Hata nesnesinden mesajı güvenli şekilde al
         setError(err.message || 'An unexpected error occurred during fetch.');
         setData(null);
       } finally {
