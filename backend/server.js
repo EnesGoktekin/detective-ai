@@ -408,7 +408,7 @@ app.post('/api/sessions', async (req, res) => {
             console.error('[ERROR] Serverless Fallback Parse Failed:', e);
         }
     }
-    const { userId, case_id: caseId } = req.body;
+    const { userId, caseId } = req.body;
     if (!caseId) {
       return res.status(400).json({ error: 'Missing caseId' });
     }
