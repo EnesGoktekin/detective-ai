@@ -229,3 +229,33 @@ export async function deleteSession(supabase, sessionId) {
   }
 }
 
+/**
+ * Fetches the most recent session for a given case and user.
+ *
+ * @param {object} supabase - The Supabase client instance.
+ * @param {string} caseId - The ID of the case.
+ * @param {string} userId - The ID of the user.
+ * @returns {Promise<object|null>} The latest session object or null if not found.
+ */
+export async function fetchLatestSession(supabase, caseId, userId) {
+  try {
+    const { data, error } = await supabase
+      .from('session_state')
+      .select('session_id, updated_at')
+      .eq('case_id', caseId)
+      // .eq('user_id', userId) // Enable this line when multi-user is implemented
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error(`[DB_HELPER_ERROR] fetchLatestSession: ${error.message}`);
+      throw error;
+    }
+
+    return data;
+  } catch (err) {
+    throw new Error(`Failed to fetch latest session for case ${caseId}.`);
+  }
+}
+

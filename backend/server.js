@@ -9,7 +9,15 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { getCaseSummaries, getCaseData, getFullCaseInfo, getSessionStateAndProgress, createSession, deleteSession, fetchLatestSession, readGameState, saveGameState } from './db/gameData.js';
+import {
+  getCaseInitialData,
+  getCaseImmutableRecords,
+  createSession,
+  readSessionProgress,
+  saveSessionProgress,
+  deleteSession,
+  fetchLatestSession,
+} from './db/gameData.js';
 
 // NOTE: All legacy raw 'cases', 'clues', 'case_screen', and 'game_sessions' queries
 // were removed from top-level code paths and migrated into centralized helpers in
@@ -448,105 +456,51 @@ app.post('/api/sessions', async (req, res) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const { userId, caseId } = req.body;
-    
     if (!caseId) {
-      return res.status(400).json({ error: "Missing caseId" });
+      return res.status(400).json({ error: 'Missing caseId' });
     }
 
-    // Check if user already has an active session for this case
-    // NOTE: Removed is_solved filter - column doesn't exist in game_sessions table
-    const { data: existingSessions, error: fetchError } = await supabase
-      .from('game_sessions')
-      .select('session_id, game_state, created_at')
-      .eq('case_id', caseId)
-      .order('created_at', { ascending: false })
-      .limit(1);
+    // 1. Check for an existing session for this user and case
+    const latestSession = await fetchLatestSession(supabase, caseId, userId);
 
-    if (fetchError) {
-      console.error("[SESSION-FETCH-ERROR]:", fetchError);
-      throw fetchError;
-    }
-
-    // If active session exists, return it
-    if (existingSessions && existingSessions.length > 0) {
-      console.log("[SESSION] Returning existing session:", existingSessions[0].session_id);
+    if (latestSession) {
+      console.log(`[SESSION] Found existing session: ${latestSession.session_id}`);
+      const progress = await readSessionProgress(supabase, latestSession.session_id);
       return res.json({
-        sessionId: existingSessions[0].session_id,
-        gameState: existingSessions[0].game_state,
-        isNew: false
+        sessionId: latestSession.session_id,
+        gameState: progress, // In new architecture, gameState is the progress object
+        isNew: false,
       });
     }
 
-    // ============================================================================
-    // NEW: Fetch dynamic starting location and scene description from database
-    // ============================================================================
-    
-    // Fetch case data to get locations JSONB (migrated to helper)
-    // Old raw query commented out for audit:
-    // const { data: caseData, error: caseError } = await supabase
-    //   .from('cases')
-    //   .select('locations')
-    //   .eq('id', caseId)
-    //   .single();
-    // if (caseError || !caseData) {
-    //   console.error("[CASE-FETCH-ERROR]:", caseError);
-    //   throw new Error(`Failed to fetch case data for caseId: ${caseId}`);
-    // }
+    // 2. If no session exists, create a new one
+    console.log(`[SESSION] No existing session found. Creating a new one for case ${caseId}`);
+    const [initialData, immutableRecords] = await Promise.all([
+      getCaseInitialData(supabase, caseId),
+      getCaseImmutableRecords(supabase, caseId),
+    ]);
 
-    // Yeni Mimari: Başlangıç verisini helper'dan çek
-    // YENİ DÜZELTME: getCaseData doğrudan nesneyi döndürür, .data/.error yapısı yok
-    const caseData = await getCaseData(supabase, caseId);
-
-    // Extract first location from locations JSONB array (use helper-provided structure)
-    const locations = caseData.location_data || caseData.locations || [];
-    if (locations.length === 0) {
-      throw new Error(`Case ${caseId} has no locations defined`);
+    if (!initialData || !immutableRecords) {
+      return res.status(404).json({ error: 'Case data not found for new session.' });
     }
-    
-    const firstLocation = locations[0];
-    const startingLocationId = firstLocation.id;
-    const startingSceneDescription = firstLocation.scene_description;
-    
-    if (!startingLocationId || !startingSceneDescription) {
-      throw new Error(`First location in case ${caseId} is missing id or scene_description`);
-    }
-    
-    console.log(`[SESSION] Starting location: ${startingLocationId}`);
-    console.log(`[SESSION] Scene description: ${startingSceneDescription.substring(0, 50)}...`);
-    
-    // Create dynamic first message from database
-    const firstMessage = {
-      role: 'model',  // 'model' is Gemini's format for AI responses
-      content: startingSceneDescription
-    };
-    
-    // Create new session with dynamic game state via helper
-    const initialGameState = {
-      currentLocation: startingLocationId,     // Dynamic from database
-      unlockedClues: [],
-      interrogatedSuspects: [],
-      knownLocations: [startingLocationId],    // Dynamic from database
-      stuckCounter: 0,
-      chatHistory: [firstMessage],             // NEW: Inject dynamic first message
-      locations: caseData.location_data || caseData.locations || []
-    };
 
-  // Old raw insert (migrated to helper and removed from top-level code)
+    // 3. Create session using the new helper
+    const newSession = await createSession(
+      supabase,
+      caseId,
+      initialData.initialLocationId,
+      immutableRecords.locationData
+    );
 
-    const newSession = await createSession(supabase, userId, caseId, initialGameState);
-
-    console.log("[SESSION] Created new session via helper:", newSession.session_id);
-    console.log("[SESSION] Initial chat history injected with scene description");
-
-    res.json({
-      sessionId: newSession.session_id,
-      gameState: newSession.game_state,  // Includes chatHistory with firstMessage
-      isNew: true
+    res.status(201).json({
+      sessionId: newSession.sessionId,
+      gameState: newSession.progress, // Return the initial progress object as gameState
+      isNew: true,
     });
 
   } catch (error) {
-    console.error("[SESSION-ERROR]:", error);
-    res.status(500).json({ error: 'Failed to create or retrieve game session' });
+    console.error('[SESSION-ERROR]:', error.message);
+    res.status(500).json({ error: 'Failed to create or retrieve game session.' });
   }
 });
 
