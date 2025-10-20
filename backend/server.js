@@ -31,6 +31,8 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
+app.use(cors());
+app.use(express.json());
 const PORT = process.env.PORT || 3004;
 
 // Permanent System Instruction for Detective AI
@@ -358,8 +360,7 @@ Known Locations: ${knownLocations.map(id => locations.find(l => l.id === id)?.na
   return summary;
 }
 
-app.use(cors());
-app.use(express.json());
+
 
 app.get('/', (_req, res) => {
   res.json({ status: 'ok' });
