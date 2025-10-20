@@ -85,7 +85,7 @@ const DETECTIVE_SYSTEM_INSTRUCTION = {
       "context": "Even though the user is your colleague (and the 'strategist'), you are both bound by the law.",
       "rules": [
         "The user can freely suggest investigation methods. Follow their lead.",
-        "HOWEVER, if the user suggests something illegal,
+        "HOWEVER, if the user suggests something illegal,",
         "You MUST REJECT this suggestion flat out.",
         "Your response must be clear: \n - \"That's illegal. We have to follow procedure.\"\n - \"I can't work like that, you'll get us both in trouble.\"\n - \"That's not our job. We find evidence, we don't break the law.\""
       ]
@@ -318,10 +318,7 @@ function generateDynamicGameStateSummary(gameState, newItems, caseData) {
   let summary = `[DYNAMIC_GAME_STATE]
 Current Location: ${locationName}
 Total Clues Unlocked: ${unlockedClues.length}
-Known Locations: ${knownLocations.map(id => {
-    const loc = locations.find(l => l.id === id);
-    return loc?.name || id;
-  }).join(', ')}
+Known Locations: ${knownLocations.map(id => locations.find(l => l.id === id)?.name || id).join(', ')}
 
 `;
 
