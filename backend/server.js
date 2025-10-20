@@ -116,4 +116,4 @@ app.get('/api/cases', async (req, res) => {
   }
 });
 
-export default app;
+module.exports = app;
