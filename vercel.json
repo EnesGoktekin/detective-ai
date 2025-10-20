@@ -1,5 +1,18 @@
 {
+  "functions": {
+    "backend/[...path].mjs": {
+      "runtime": "nodejs20.x",
+      "memory": 512,
+      "maxDuration": 10,
+      "includeFiles": [
+        "backend/db/gameData.js"
+      ],
+      "config": {
+        "bodyParser": false
+      }
+    }
+  },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/[...path]" }
+    { "source": "/api/(.*)", "destination": "backend/[...path].mjs" }
   ]
 }
