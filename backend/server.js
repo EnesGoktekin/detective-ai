@@ -243,7 +243,6 @@ function parseIntent(message, caseData, currentGameState) {
 async function updateGameState(intent, currentGameState, caseData) {
   const { action, target_id } = intent;
   const newState = { ...currentGameState };
-  let progressMade = false;
   const newClues = [];  // Will contain actual clue objects from database
   
   // Get current location
@@ -257,8 +256,6 @@ async function updateGameState(intent, currentGameState, caseData) {
   // ============================================================================
   
   if (action === 'inspect' && target_id) {
-  // OLD: Query clues table for this object (migrated to caseData.evidence_truth)
-
     // New: search caseData.evidence_truth (in-memory) for evidence linked to the target_id
     const allEvidence = Array.isArray(caseData.evidence_truth) ? caseData.evidence_truth : [];
     const clues = allEvidence.filter(e => e.trigger_object_id === target_id || e.linked_object_id === target_id || e.id === target_id);
@@ -266,10 +263,7 @@ async function updateGameState(intent, currentGameState, caseData) {
     
     if (clues.length === 0) {
       // RED HERRING: No clues, but valid investigation
-      progressMade = true;
-      newState.stuckCounter = 0;
-      console.log(`[GAME-LOGIC] ✅ Red Herring - Valid investigation, no clues found`);
-      return { newState, progressMade, newClues };
+      return { newState, newClues };
     }
     
     // Check which clues are new
@@ -280,21 +274,13 @@ async function updateGameState(intent, currentGameState, caseData) {
         // NEW CLUE FOUND!
         newClues.push(clue);  // Store full clue object with description
         newState.unlockedClues = [...unlockedClues, clueId];
-        progressMade = true;
-        newState.stuckCounter = 0;
         console.log(`[GAME-LOGIC] ✅ New clue unlocked: ${clueId} - ${clue.name}`);
       } else {
         console.log(`[GAME-LOGIC] ⏭️ Clue ${clueId} already unlocked`);
       }
     }
     
-    // If all clues already unlocked, still consider it progress (not stuck)
-    if (newClues.length === 0 && clues.length > 0) {
-      progressMade = true;  // Already investigated, but not stuck
-      newState.stuckCounter = 0;
-    }
-    
-    return { newState, progressMade, newClues };
+    return { newState, newClues };
   }
   
   // ============================================================================
@@ -307,8 +293,6 @@ async function updateGameState(intent, currentGameState, caseData) {
     // Check if location is known
     if (knownLocations.includes(target_id)) {
       newState.currentLocation = target_id;
-      progressMade = true;
-      newState.stuckCounter = 0;
       console.log(`[GAME-LOGIC] ✅ Moved to: ${target_id}`);
       
       // Get scene_description from new location
@@ -324,10 +308,9 @@ async function updateGameState(intent, currentGameState, caseData) {
       }
     } else {
       console.log(`[GAME-LOGIC] ⚠️ Location '${target_id}' not yet discovered`);
-      newState.stuckCounter = (newState.stuckCounter || 0) + 1;
     }
     
-    return { newState, progressMade, newClues };
+    return { newState, newClues };
   }
   
   // ============================================================================
@@ -336,8 +319,7 @@ async function updateGameState(intent, currentGameState, caseData) {
   
   else if (action === 'talk') {
     console.log(`[GAME-LOGIC] 🗣️ Talk action - future implementation`);
-    progressMade = false;  // Not yet implemented
-    return { newState, progressMade, newClues };
+    return { newState, newClues };
   }
   
   // ============================================================================
@@ -345,10 +327,8 @@ async function updateGameState(intent, currentGameState, caseData) {
   // ============================================================================
   
   else {
-    console.log(`[GAME-LOGIC] 💬 General conversation - incrementing stuck counter`);
-    newState.stuckCounter = (newState.stuckCounter || 0) + 1;
-    progressMade = false;
-    return { newState, progressMade, newClues };
+    console.log(`[GAME-LOGIC] 💬 General conversation - no state change`);
+    return { newState, newClues };
   }
 }
 
@@ -982,6 +962,15 @@ USER MESSAGE: ${sanitizedMessage}`;
     // STEP 7: PERSIST CHAT HISTORY TO DATABASE
     // ============================================================================
     
+    // QUEUE MANAGEMENT for last_five_messages
+    let lastFiveMessages = gameState.last_five_messages || [];
+    lastFiveMessages.push({ role: 'user', content: sanitizedMessage });
+    lastFiveMessages.push({ role: 'model', content: cleanedText });
+    if (lastFiveMessages.length > 10) {
+      lastFiveMessages = lastFiveMessages.slice(-10); // Keep only the last 10 messages (5 pairs)
+    }
+    newState.last_five_messages = lastFiveMessages;
+
     // Append user message and AI response to chat history (use sanitized message)
     newState.chatHistory = [
       ...chatHistory,
