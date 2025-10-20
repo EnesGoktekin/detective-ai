@@ -388,17 +388,25 @@ app.post('/api/sessions', async (req, res) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     console.log('Request Body:', req.body); // <<< TEŞHİS İÇİN EKLENDİ
-    if (Object.keys(req.body).length === 0 && req.rawBody) {
+    // EKLENECEK KOD: VERCEL/EXPRESS UYUMSUZLUĞU İÇİN MANUEL GÖVDE AYRIŞTIRMA
+    // Eğer req.body boşsa ve isteğin ham verisi varsa, elle ayrıştır.
+    if (Object.keys(req.body).length === 0 && req.method === 'POST') {
         try {
-            req.body = JSON.parse(req.rawBody.toString());
-            console.log('[DEBUG] Manual Body Parse Success!');
+            // Node.js'in raw data'sını okuma standardı (Express'in rawBody'yi pas geçmesi durumu için)
+            const rawData = await new Promise((resolve, reject) => {
+                let data = '';
+                req.on('data', chunk => data += chunk);
+                req.on('end', () => resolve(data));
+                req.on('error', reject);
+            });
+            if (rawData) {
+                req.body = JSON.parse(rawData);
+                console.log('[DEBUG] Serverless Fallback Parse Success!');
+            }
         } catch (e) {
-            console.error('[ERROR] Manual Body Parse Failed:', e);
+            // Parsing başarısız olursa devam et, hata loglanır.
+            console.error('[ERROR] Serverless Fallback Parse Failed:', e);
         }
-    } else if (Object.keys(req.body).length === 0 && req.method === 'POST') {
-        // Eğer rawBody yoksa (ki Vercel'de genellikle olur), bu noktada isteğin body'sini okumalıyız.
-        // Ancak genellikle Vercel bu veriyi req.body'ye veya req.rawBody'ye koyar.
-        // Şimdilik sadece manuel parsing denemesini yapalım.
     }
     const { userId, case_id: caseId } = req.body;
     if (!caseId) {
