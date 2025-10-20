@@ -164,6 +164,10 @@ export async function readSessionProgress(supabase, sessionId) {
     console.error(`[DB_HELPER_ERROR] readSessionProgress (progress): ${progressError.message}`);
     throw new Error('Failed to read session progress.');
   }
+  if (!progressData) {
+    console.warn(`[DB_HELPER_WARN] readSessionProgress: No progress data found for session ${sessionId}`);
+    return null; // No progress data found, return null
+  }
 
   // 3. Combine and return
   return { ...stateData, ...progressData };
@@ -242,7 +246,7 @@ export async function fetchLatestSession(supabase, caseId, userId) {
   try {
     const { data, error } = await supabase
       .from('session_state')
-      .select('session_id, updated_at')
+      .select('session_id, updated_at, created_at')
       .eq('case_id', caseId)
       // .eq('user_id', userId) // Enable this line when multi-user is implemented
       .order('updated_at', { ascending: false })

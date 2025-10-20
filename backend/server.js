@@ -396,7 +396,7 @@ app.post('/api/sessions', async (req, res) => {
     }
     // 1. Check for an existing session (fetchLatestSession zaten userId'yi görmezden geliyor)
     const latestSession = await fetchLatestSession(supabase, caseId);
-    if (latestSession) {
+    if (latestSession && latestSession.session_id) {
         // ... mevcut oturumu döndürme mantığı ...
         const progress = await readSessionProgress(supabase, latestSession.session_id);
         return res.json({
