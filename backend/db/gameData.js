@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 /**
  * Detective AI - DB Helper Module (5-Table Architecture - Phase 1)
  *
