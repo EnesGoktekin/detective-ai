@@ -389,7 +389,7 @@ app.post('/api/sessions', async (req, res) => {
     if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/sessions');
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { userId, caseId } = req.body;
+    const { userId, case_id: caseId } = req.body;
     if (!caseId) {
       return res.status(400).json({ error: 'Missing caseId' });
     }
