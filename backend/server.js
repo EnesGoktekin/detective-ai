@@ -76,7 +76,7 @@ const DETECTIVE_SYSTEM_INSTRUCTION = {
       "context": "Even though the user is your colleague (and the 'strategist'), you are both bound by the law.",
       "rules": [
         "The user can freely suggest investigation methods. Follow their lead.",
-        "HOWEVER, if the user suggests something illegal, immoral, or against procedure (e.g., 'let's torture the suspect', 'plant evidence', 'let's just shoot him'):",
+        "HOWEVER, if the user suggests something illegal,
         "You MUST REJECT this suggestion flat out.",
         "Your response must be clear: \n - \"That's illegal. We have to follow procedure.\"\n - \"I can't work like that, you'll get us both in trouble.\"\n - \"That's not our job. We find evidence, we don't break the law.\""
       ]
@@ -101,17 +101,7 @@ const DETECTIVE_SYSTEM_INSTRUCTION = {
   }
 };
 
-// Initialize Supabase client with SERVICE_ROLE_KEY to bypass RLS
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  console.error('ÖLÜMCÜL HATA: SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY environment variables gerekli!');
-  console.error('Backend requires SERVICE_ROLE_KEY to bypass RLS and access cases/game_sessions tables.');
-  process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Supabase client is initialized within each route handler for Vercel compatibility.
 
 // ============================================
 // RATE LIMITING (Katman 1): In-Memory Storage
@@ -133,8 +123,6 @@ const REPETITION_WARNINGS = {
 
 // Maximum consecutive identical messages allowed
 const REPETITION_LIMIT = 3;
-
-// ...existing code...
 
 // ============================================
 // GAME LOGIC: Blind Map / Secret Vault Architecture
@@ -454,6 +442,11 @@ app.get('/api/health', (_req, res) => {
 // Create or get existing game session
 app.post('/api/sessions', async (req, res) => {
   try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/sessions');
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const { userId, caseId } = req.body;
     
     if (!caseId) {
@@ -564,6 +557,11 @@ app.post('/api/sessions', async (req, res) => {
  */
 app.delete('/api/sessions/:sessionId', async (req, res) => {
   try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/sessions/:sessionId');
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const { sessionId } = req.params;
     
     // Input validation: Check if sessionId is provided
@@ -624,6 +622,11 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
  */
 app.get('/api/sessions/latest', async (req, res) => {
   try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/sessions/latest');
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const { caseId } = req.query;
     
     // Input validation: Check if caseId is provided
@@ -674,15 +677,28 @@ app.get('/api/sessions/latest', async (req, res) => {
  */
 app.get('/api/cases', async (req, res) => {
   try {
-    console.log("[MENU-API] Fetching case summaries via helper getCaseSummaries...");
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/cases');
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Use helper to fetch menu summaries (migrated from direct case_screen query)
-    const menuCases = await getCaseSummaries(supabase);
+    const { data: summaries, error } = await supabase
+      .from('case_summaries')
+      .select('id, title, synopsis, case_number, is_solved')
+      .order('created_at', { ascending: false });
 
-    if (!Array.isArray(menuCases) || menuCases.length === 0) {
-      console.log("[MENU-API] No cases found via helper");
-      return res.json([]);
+    if (error) {
+      throw error;
     }
+
+    // Transform and simplify case summaries for menu
+    const menuCases = summaries.map(cs => ({
+      id: cs.id,
+      title: cs.title,
+      synopsis: cs.synopsis,
+      caseNumber: cs.case_number || cs.caseNumber,
+      isSolved: cs.is_solved
+    }));
 
     res.json(menuCases);
     
@@ -703,6 +719,11 @@ app.get('/api/cases', async (req, res) => {
  */
 app.get('/api/cases/:caseId', async (req, res) => {
   try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/cases/:caseId');
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const { caseId } = req.params;
     
     // Use helper getCaseData which provides canonical evidence under evidence_truth
@@ -748,18 +769,14 @@ app.get('/api/cases/:caseId', async (req, res) => {
  */
 app.post('/api/chat', async (req, res) => {
   try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/chat');
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const { caseId, message, sessionId } = req.body;
-    
-    // ============================================================================
-    // STEP 1: VALIDATE INPUT
-    // ============================================================================
-    
-    if (!message || !caseId) {
-      return res.status(400).json({ error: "Missing message or caseId" });
-    }
-    
-    if (!sessionId) {
-      return res.status(400).json({ error: "Missing sessionId. Please create a game session first." });
+    if (!message || !caseId || !sessionId) {
+      return res.status(400).json({ error: "Missing message, caseId, or sessionId" });
     }
 
     // ============================================================================
@@ -1062,6 +1079,11 @@ USER MESSAGE: ${sanitizedMessage}`;
 // List available Gemini models and which support generateContent
 app.get('/api/models', async (_req, res) => {
   try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/models');
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'Missing GEMINI_API_KEY/GOOGLE_API_KEY' });
