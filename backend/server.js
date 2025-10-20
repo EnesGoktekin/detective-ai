@@ -2,7 +2,7 @@
  * Detective AI - Backend Server
  * Last Update: 2025-10-18 16:45 - Fixed case_screen table query (cache bust)
  */
-import express from 'express';
+import express from 'express'; // Temporary change for new commit
 import cors from 'cors';
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
