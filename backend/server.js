@@ -561,62 +561,18 @@ app.get('/api/cases', async (req, res) => {
   try {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/cases');
+    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found');
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { data: summaries, error } = await supabase
-      .from('case_summaries')
-      .select('case_id, case_number, title, synopsis, created_at')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      throw error;
-    }
-
+    const summaries = await getCaseSummaries(supabase);
     res.json(summaries);
-    
   } catch (error) {
-    console.error("[MENU-API-ERROR] Catch block - Full error:", error);
-    console.error("[MENU-API-ERROR] Error message:", error.message);
-    res.status(500).json({ 
-      error: 'Failed to load case menu',
-      details: error.message || 'Unknown error'
-    });
+    console.error('[MENU-API-ERROR]:', error.message);
+    res.status(500).json({ error: 'Failed to load case menu.' });
   }
 });
 
-/**
- * GET /api/cases/:caseId - Fetch full case details for game page
- * NEW DATABASE: All data now in 'cases' table (no more case_details)
- * Returns: locations (Blind Map), victim, suspects, correctAccusation
- */
-app.get('/api/cases/:caseId', async (req, res) => {
-  try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/cases/:caseId');
-    const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { caseId } = req.params;
-    
-    // Use helper getCaseData which provides canonical evidence under evidence_truth
-  // Old raw query removed - case data reads migrated to helpers
-    const caseData = await getCaseData(supabase, caseId);
-
-    if (!caseData) {
-
-  } catch (error) {
-    console.error("--- /api/chat İÇİNDE ÖLÜMCÜL HATA ---");
-    if (axios.isAxiosError(error) && error.response) {
-      console.error('API Hata Detayları:', error.response.data);
-    } else {
-      console.error('Genel Hata:', error);
-    }
-    res.status(500).json({ 
-      error: 'Bad signal at the crime scene—try again? 🚨' 
-    });
-  }
-});
 
 // List available Gemini models and which support generateContent
 app.get('/api/models', async (_req, res) => {
