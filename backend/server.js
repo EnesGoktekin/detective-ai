@@ -382,65 +382,53 @@ app.get('/api/health', (_req, res) => {
 // Create or get existing game session
 app.post('/api/sessions', async (req, res) => {
   try {
-    console.log('[DEBUG] POST /api/sessions - Start');
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/sessions');
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log('Request Body:', req.body); // <<< TEŞHİS İÇİN EKLENDİ
-    const { userId, caseId } = req.body;
+    // caseId'yi doğrudan body'den güvenli şekilde yakala.
+    const caseId = req.body.caseId; 
+    
     if (!caseId) {
-      console.log('[DEBUG] Missing caseId, returning 400');
-      return res.status(400).json({ error: 'Missing caseId' });
+        // Bu hata, Frontend'in takılmasına neden olan gereksiz çağrıları durdurur.
+        return res.status(400).json({ error: 'Missing caseId' });
     }
-
-    console.log('[DEBUG] Calling fetchLatestSession');
-    const latestSession = await fetchLatestSession(supabase, caseId, userId);
-    console.log('[DEBUG] latestSession:', latestSession ? 'FOUND' : 'NOT FOUND');
-
+    // 1. Check for an existing session (fetchLatestSession zaten userId'yi görmezden geliyor)
+    const latestSession = await fetchLatestSession(supabase, caseId);
     if (latestSession) {
-      console.log('[DEBUG] Found existing session, calling readSessionProgress');
-      const progress = await readSessionProgress(supabase, latestSession.session_id);
-      console.log('[DEBUG] Returning existing session');
-      return res.json({
-        sessionId: latestSession.session_id,
-        gameState: progress, // In new architecture, gameState is the progress object
-        isNew: false,
-      });
+        // ... mevcut oturumu döndürme mantığı ...
+        const progress = await readSessionProgress(supabase, latestSession.session_id);
+        return res.json({
+            sessionId: latestSession.session_id,
+            gameState: progress,
+            isNew: false,
+        });
     }
-
-    console.log('[DEBUG] No existing session, calling Promise.all for initial data');
+    // 2. Create a new one
     const [initialData, immutableRecords] = await Promise.all([
-      getCaseInitialData(supabase, caseId),
-      getCaseImmutableRecords(supabase, caseId),
+        getCaseInitialData(supabase, caseId),
+        getCaseImmutableRecords(supabase, caseId),
     ]);
-    console.log('[DEBUG] Initial data fetched:', { initialData: !!initialData, immutableRecords: !!immutableRecords });
-
     if (!initialData || !immutableRecords) {
-      console.log('[DEBUG] Case data not found, returning 404');
-      return res.status(404).json({ error: 'Case data not found for new session.' });
+        return res.status(404).json({ error: 'Case data not found for new session.' });
     }
-
-    console.log('[DEBUG] Calling createSession');
+    // 3. Create session using the new helper
     const newSession = await createSession(
-      supabase,
-      caseId,
-      initialData.initialLocationId,
-      immutableRecords.locationData
+        supabase,
+        caseId,
+        initialData.initialLocationId,
+        immutableRecords.locationData
     );
-    console.log('[DEBUG] New session created:', newSession.sessionId);
-    console.log('[DEBUG] Returning new session');
     res.status(201).json({
-      sessionId: newSession.sessionId,
-      gameState: newSession.progress, // Return the initial progress object as gameState
-      isNew: true,
+        sessionId: newSession.sessionId,
+        gameState: newSession.progress,
+        isNew: true,
     });
-
-  } catch (error) {
-    console.error('[DEBUG] [SESSION-ERROR]:', error.message);
+} catch (error) {
+    console.error('[SESSION-ERROR]:', error.message);
     res.status(500).json({ error: 'Failed to create or retrieve game session.' });
-  }
+}
 });
 
 /**
