@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+
 
 /**
  * Fetches the public case summary data for the selection screen.
