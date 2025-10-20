@@ -388,26 +388,6 @@ app.post('/api/sessions', async (req, res) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     console.log('Request Body:', req.body); // <<< TEŞHİS İÇİN EKLENDİ
-    // EKLENECEK KOD: VERCEL/EXPRESS UYUMSUZLUĞU İÇİN MANUEL GÖVDE AYRIŞTIRMA
-    // Eğer req.body boşsa ve isteğin ham verisi varsa, elle ayrıştır.
-    if (Object.keys(req.body).length === 0 && req.method === 'POST') {
-        try {
-            // Node.js'in raw data'sını okuma standardı (Express'in rawBody'yi pas geçmesi durumu için)
-            const rawData = await new Promise((resolve, reject) => {
-                let data = '';
-                req.on('data', chunk => data += chunk);
-                req.on('end', () => resolve(data));
-                req.on('error', reject);
-            });
-            if (rawData) {
-                req.body = JSON.parse(rawData);
-                console.log('[DEBUG] Serverless Fallback Parse Success!');
-            }
-        } catch (e) {
-            // Parsing başarısız olursa devam et, hata loglanır.
-            console.error('[ERROR] Serverless Fallback Parse Failed:', e);
-        }
-    }
     const { userId, caseId } = req.body;
     if (!caseId) {
       return res.status(400).json({ error: 'Missing caseId' });
