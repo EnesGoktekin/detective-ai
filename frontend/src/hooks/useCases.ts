@@ -37,8 +37,18 @@ export function useCases(): UseCasesResult {
         const resp = await fetch('/api/cases');
         if (!resp.ok) throw new Error(`Failed to fetch /api/cases: ${resp.status}`);
 
-        const casesData: CaseSummary[] = await resp.json();
-        setData(casesData || []);
+        const casesData = await resp.json();
+        
+        // Map snake_case from DB to camelCase for frontend
+        const formattedData: CaseSummary[] = casesData.map((row: any) => ({
+          id: row.case_id,
+          title: row.title,
+          synopsis: row.synopsis,
+          caseNumber: row.case_number,
+          isSolved: row.is_solved,
+        }));
+
+        setData(formattedData || []);
         setIsLoading(false);
       } catch (err: any) {
         console.error('[useCases] Error fetching /api/cases:', err);
