@@ -260,34 +260,33 @@ export async function fetchLatestSession(supabase, caseId, userId) {
 }
 
 /**
- * Fetches the public case summary data for the selection screen.
+ * Fetches and transforms case summaries for the frontend.
  *
  * @param {object} supabase - The Supabase client instance.
- * @returns {Promise<Array<object>>} An array of case summary objects.
+ * @param {string} userId - The ID of the user (for future multi-user support).
+ * @returns {Promise<Array>} An array of transformed case summary objects.
  */
-export async function getCaseSummaries(supabase) {
+export async function getCaseSummaries(supabase, userId) {
   try {
     const { data, error } = await supabase
-      .from('case_summaries')
-      .select('case_id, case_number, title, synopsis, created_at')
-      .order('created_at', { ascending: false });
+      .from('case_initial_data')
+      .select('case_id, synopsis, victims, suspects, initial_location_id')
+      .order('case_id', { ascending: true });
 
     if (error) {
       console.error(`[DB_HELPER_ERROR] getCaseSummaries: ${error.message}`);
       throw error;
     }
 
-    // Convert snake_case to camelCase for the frontend
     return data.map(item => ({
-      caseId: item.case_id,
-      caseNumber: item.case_number,
-      title: item.title,
+      id: item.case_id,
       synopsis: item.synopsis,
-      createdAt: item.created_at,
+      victims: item.victims || {},
+      suspects: item.suspects || [],
+      initialLocationId: item.initial_location_id,
     }));
-
   } catch (err) {
-    throw new Error(`Failed to retrieve case summaries for menu.`);
+    throw new Error('Failed to fetch case summaries.');
   }
 }
 
