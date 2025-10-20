@@ -107,12 +107,23 @@ app.get('/api/cases', async (req, res) => {
     if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found');
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // <<< KRİTİK LOG: Hatanın Supabase bağlantısından sonra olup olmadığını görelim.
+    console.log('[DEBUG] Supabase client created. Fetching summaries...');
+
     const summaries = await getCaseSummaries(supabase);
+
+    // Eğer veri yoksa (boş dizi gelirse) 404 döndür
+    if (!summaries || summaries.length === 0) {
+      console.warn('[MENU-API-ERROR]: No case summaries found in DB.');
+      return res.status(404).json({ error: 'No cases available.' }); // <<< Timeout yerine hızlı 404
+    }
+
     res.json(summaries);
 
   } catch (error) {
-    console.error('[MENU-API-ERROR]:', error.message);
-    res.status(500).json({ error: 'Failed to load case menu.' });
+    // Tüm hataları, özellikle asenkron olanları yakalar
+    console.error('[MENU-API-ERROR - FINAL]: Fatal error during API call:', error.message, error);
+    res.status(500).json({ error: 'Failed to load case menu (Final Catch).' });
   }
 });
 
