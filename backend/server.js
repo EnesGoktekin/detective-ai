@@ -349,7 +349,6 @@ function generateDynamicGameStateSummary(gameState, newClues, caseData) {
     currentLocation = 'study_room',
     unlockedClues = [],
     knownLocations = [],
-    stuckCounter = 0
   } = gameState;
 
   // Get current location data from caseData.locations
@@ -365,7 +364,6 @@ Known Locations: ${knownLocations.map(id => {
     const loc = locations.find(l => l.id === id);
     return loc?.name || id;
   }).join(', ')}
-Investigation Status: ${stuckCounter > 2 ? 'User seems stuck - offer hints' : 'Progressing normally'}
 
 `;
 
@@ -890,7 +888,7 @@ app.post('/api/chat', async (req, res) => {
     console.log("[DEBUG] Generated Summary:", dynamicGameStateSummary);
     
     // ============================================================================
-    // STEP 6: CALL GEMINI API WITH CHAT HISTORY
+    // STEP 6: CALL GEMINI API WITH HARDENED PROMPT
     // ============================================================================
     
     // Prepare user message with dynamic summary (contains new clue descriptions)
@@ -898,17 +896,27 @@ app.post('/api/chat', async (req, res) => {
 
 USER MESSAGE: ${sanitizedMessage}`;
     
-    // Get chat history from gameState (persistent, not from request body)
-    const chatHistory = Array.isArray(newState.chatHistory) ? newState.chatHistory : [];
-    
+    // Get short-term memory and long-term summary for the prompt
+    const lastFiveMessages = newState.last_five_messages || [];
+    const aiCoreSummary = { role: 'model', parts: [{ text: `[Internal Monologue]\n${gameState.ai_core_summary}` }] };
+
     // Map to Gemini format (user/model)
     const contents = [
-      ...chatHistory.map((m) => ({
+      aiCoreSummary,
+      ...lastFiveMessages.map((m) => ({
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: String(m.content ?? '') }],
       })),
       { role: 'user', parts: [{ text: userMessageWithContext }] },
     ];
+
+    // Long-term memory update trigger
+    const messageCount = newState.chatHistory.length;
+    if (messageCount > 0 && messageCount % 10 === 0) {
+      console.log(`[AI_MEMORY] Triggering long-term memory summarization at ${messageCount} messages.`);
+      // In a real implementation, you would trigger a background job here
+      // to summarize the full chatHistory and update ai_core_summary.
+    }
 
     // Model name must be set in environment variable
     const model = process.env.GEMINI_MODEL;
