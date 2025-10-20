@@ -243,44 +243,44 @@ function parseIntent(message, caseData, currentGameState) {
 async function updateGameState(intent, currentGameState, caseData) {
   const { action, target_id } = intent;
   const newState = { ...currentGameState };
-  const newClues = [];  // Will contain actual clue objects from database
-  
+  const newClues = [];
+  const newSuspectInfo = []; // Add this line
+
   // Get current location
   const currentLocation = newState.currentLocation;
   const unlockedClues = newState.unlockedClues || [];
+  const unlockedSuspects = newState.unlockedSuspects || []; // Add this line
   
   console.log(`[GAME-LOGIC] Processing action='${action}' target='${target_id}' at location='${currentLocation}'`);
   
   // ============================================================================
-  // INSPECT ACTION: Query clues table (Secret Vault)
+  // INSPECT ACTION: Check for new evidence and suspect info
   // ============================================================================
   
   if (action === 'inspect' && target_id) {
-    // New: search caseData.evidence_truth (in-memory) for evidence linked to the target_id
+    // Check for evidence
     const allEvidence = Array.isArray(caseData.evidence_truth) ? caseData.evidence_truth : [];
-    const clues = allEvidence.filter(e => e.trigger_object_id === target_id || e.linked_object_id === target_id || e.id === target_id);
-    console.log(`[GAME-LOGIC] (helper) Found ${clues.length} evidence item(s) for object '${target_id}' from caseData.evidence_truth`);
+    const triggeredEvidence = allEvidence.filter(e => e.trigger_object_id === target_id);
     
-    if (clues.length === 0) {
-      // RED HERRING: No clues, but valid investigation
-      return { newState, newClues };
+    for (const evidence of triggeredEvidence) {
+      if (!unlockedClues.includes(evidence.id)) {
+        newClues.push(evidence);
+        newState.unlockedClues.push(evidence.id);
+      }
     }
-    
-    // Check which clues are new
-    for (const clue of clues) {
-      const clueId = clue.id;
-      
-      if (!unlockedClues.includes(clueId)) {
-        // NEW CLUE FOUND!
-        newClues.push(clue);  // Store full clue object with description
-        newState.unlockedClues = [...unlockedClues, clueId];
-        console.log(`[GAME-LOGIC] ✅ New clue unlocked: ${clueId} - ${clue.name}`);
-      } else {
-        console.log(`[GAME-LOGIC] ⏭️ Clue ${clueId} already unlocked`);
+
+    // Check for suspect info
+    const allSuspects = Array.isArray(caseData.suspect_truth) ? caseData.suspect_truth : [];
+    const triggeredSuspects = allSuspects.filter(s => s.trigger_object_id === target_id);
+
+    for (const suspect of triggeredSuspects) {
+      if (!unlockedSuspects.includes(suspect.id)) {
+        newSuspectInfo.push(suspect);
+        newState.unlockedSuspects.push(suspect.id);
       }
     }
     
-    return { newState, newClues };
+    return { newState, newClues, newSuspectInfo };
   }
   
   // ============================================================================
@@ -290,45 +290,21 @@ async function updateGameState(intent, currentGameState, caseData) {
   else if (action === 'move' && target_id) {
     const knownLocations = newState.knownLocations || [];
     
-    // Check if location is known
     if (knownLocations.includes(target_id)) {
       newState.currentLocation = target_id;
-      console.log(`[GAME-LOGIC] ✅ Moved to: ${target_id}`);
-      
-      // Get scene_description from new location
       const locations = Array.isArray(caseData.locations) ? caseData.locations : [];
       const newLocationData = locations.find(loc => loc.id === target_id);
-      
       if (newLocationData && newLocationData.scene_description) {
-        // Add location change message to newClues for AI context
-        newClues.push({
-          type: 'location_change',
-          description: newLocationData.scene_description
-        });
+        newClues.push({ type: 'location_change', description: newLocationData.scene_description });
       }
-    } else {
-      console.log(`[GAME-LOGIC] ⚠️ Location '${target_id}' not yet discovered`);
     }
     
-    return { newState, newClues };
+    return { newState, newClues, newSuspectInfo };
   }
   
-  // ============================================================================
-  // TALK ACTION: Interrogation (Future)
-  // ============================================================================
-  
-  else if (action === 'talk') {
-    console.log(`[GAME-LOGIC] 🗣️ Talk action - future implementation`);
-    return { newState, newClues };
-  }
-  
-  // ============================================================================
-  // CHAT ACTION: General conversation
-  // ============================================================================
-  
+  // Fallback for other actions
   else {
-    console.log(`[GAME-LOGIC] 💬 General conversation - no state change`);
-    return { newState, newClues };
+    return { newState, newClues, newSuspectInfo };
   }
 }
 
@@ -344,7 +320,7 @@ async function updateGameState(intent, currentGameState, caseData) {
  * @param {Object} caseData - Full case data (for location info)
  * @returns {string} - Natural language summary for AI context
  */
-function generateDynamicGameStateSummary(gameState, newClues, caseData) {
+function generateDynamicGameStateSummary(gameState, newItems, caseData) {
   const {
     currentLocation = 'study_room',
     unlockedClues = [],
@@ -368,25 +344,23 @@ Known Locations: ${knownLocations.map(id => {
 `;
 
   // ============================================================================
-  // INJECT NEWLY DISCOVERED CLUE DESCRIPTIONS (Secret Vault)
+  // INJECT NEWLY DISCOVERED ITEMS (EVIDENCE AND SUSPECT INFO)
   // ============================================================================
   
-  if (newClues && newClues.length > 0) {
-    summary += `[NEWLY DISCOVERED EVIDENCE]\n`;
+  if (newItems && newItems.length > 0) {
+    summary += `[NEWLY DISCOVERED INFORMATION]\n`;
     
-    for (const clue of newClues) {
-      // Handle location change messages
-      if (clue.type === 'location_change') {
-        summary += `\n[LOCATION CHANGE]\n${clue.description}\n`;
+    for (const item of newItems) {
+      if (item.type === 'location_change') {
+        summary += `\n[LOCATION CHANGE]\n${item.description}\n`;
         continue;
       }
       
-      // Handle actual clues from Secret Vault
-      const clueName = clue.name || 'Unknown';
-      const clueDesc = clue.description || 'No description available';
+      const itemName = item.name || 'Unknown';
+      const itemDesc = item.description || 'No description available';
       
-      summary += `\nClue: ${clueName}\n`;
-      summary += `Description: ${clueDesc}\n`;
+      summary += `\nItem: ${itemName}\n`;
+      summary += `Description: ${itemDesc}\n`;
     }
     
     summary += `\n`;
@@ -875,16 +849,15 @@ app.post('/api/chat', async (req, res) => {
     // STEP 4: UPDATE GAME STATE (SECRET VAULT ARCHITECTURE)
     // ============================================================================
     
-    const { newState, progressMade, newClues } = await updateGameState(intent, gameState, caseData);
-    console.log("[GAME-STATE] Progress made:", progressMade);
+    const { newState, newClues, newSuspectInfo } = await updateGameState(intent, gameState, caseData);
     console.log("[GAME-STATE] New clues unlocked:", newClues.length);
-    console.log("[GAME-STATE] New clues:", JSON.stringify(newClues));
+    console.log("[GAME-STATE] New suspect info unlocked:", newSuspectInfo.length);
     
     // ============================================================================
     // STEP 5: GENERATE DYNAMIC SUMMARY (WITH NEW CLUES INJECTED)
     // ============================================================================
     
-    const dynamicGameStateSummary = generateDynamicGameStateSummary(newState, newClues, caseData);
+    const dynamicGameStateSummary = generateDynamicGameStateSummary(newState, [...newClues, ...newSuspectInfo], caseData);
     console.log("[DEBUG] Generated Summary:", dynamicGameStateSummary);
     
     // ============================================================================
@@ -897,13 +870,13 @@ app.post('/api/chat', async (req, res) => {
 USER MESSAGE: ${sanitizedMessage}`;
     
     // Get short-term memory and long-term summary for the prompt
-    const lastFiveMessages = newState.last_five_messages || [];
+    const shortTermMemory = newState.last_five_messages || [];
     const aiCoreSummary = { role: 'model', parts: [{ text: `[Internal Monologue]\n${gameState.ai_core_summary}` }] };
 
     // Map to Gemini format (user/model)
     const contents = [
       aiCoreSummary,
-      ...lastFiveMessages.map((m) => ({
+      ...shortTermMemory.map((m) => ({
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: String(m.content ?? '') }],
       })),
@@ -999,21 +972,18 @@ USER MESSAGE: ${sanitizedMessage}`;
     
     // ============================================================================
     // STEP 8: RETURN RESPONSE TO FRONTEND
+    // STEP 8: RETURN RESPONSE TO FRONTEND
     // ============================================================================
     
-    // Extract newly unlocked clue IDs (for frontend notifications)
-    const unlockedClueIds = newClues
-      .filter(c => c.type !== 'location_change')
-      .map(c => c.id);
-    
-    console.log("[BACKEND-DEBUG] Unlocked clue IDs:", unlockedClueIds);
-    console.log("[BACKEND-DEBUG] Final response:", { responseText: cleanedText, unlockedEvidenceIds: unlockedClueIds });
+    // Extract newly unlocked IDs for frontend panels
+    const unlockedEvidenceIds = newClues.map(c => c.id);
+    const unlockedSuspectInfoIds = newSuspectInfo.map(s => s.id);
     
     res.json({ 
       responseText: cleanedText, 
-      unlockedEvidenceIds: unlockedClueIds
+      unlockedEvidenceIds,
+      unlockedSuspectInfoIds,
     });
-
   } catch (error) {
     console.error("--- /api/chat İÇİNDE ÖLÜMCÜL HATA ---");
     if (axios.isAxiosError(error) && error.response) {
