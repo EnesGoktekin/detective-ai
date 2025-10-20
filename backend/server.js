@@ -592,6 +592,27 @@ app.get('/api/cases', async (req, res) => {
   }
 });
 
+// GET /api/cases/:caseId - Fetch static case details for the GamePage header/info.
+app.get('/api/cases/:caseId', async (req, res) => {
+  try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/cases/:caseId');
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { caseId } = req.params;
+    // Get the initial (YZ'ye açık) verileri çeker.
+    const initialData = await getCaseInitialData(supabase, caseId);
+
+    if (!initialData) {
+      return res.status(404).json({ error: 'Case details not found.' });
+    }
+    res.json(initialData);
+  } catch (error) {
+    console.error('[CASE-DETAILS-API-ERROR]:', error.message);
+    res.status(500).json({ error: 'Failed to load case details.' });
+  }
+});
+
 
 
 // List available Gemini models and which support generateContent
