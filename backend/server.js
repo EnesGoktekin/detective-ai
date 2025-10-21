@@ -679,7 +679,16 @@ app.post('/api/chat', async (req, res) => {
     if (gameState.chat_history.length > 0 && gameState.chat_history.length % 10 === 0) {
         console.log('[CHAT_API] Triggering AI Core Summary update...');
         
-        const summarizationPrompt = `Summarize the key findings, clues, and decisions from the following detective conversation. This summary will be used as a long-term memory for the AI detective. Be concise and focus on facts. Conversation: ${JSON.stringify(gameState.chat_history)}`;
+        const lastTenMessages = gameState.chat_history.slice(-10);
+        const summarizationPrompt = `Update the following long-term memory summary based on the recent conversation. The summary should incorporate new findings, clues, and decisions, refining the existing summary.
+
+Previous Summary (Long-Term Memory):
+${gameState.ai_core_summary}
+
+Recent Conversation to integrate:
+${JSON.stringify(lastTenMessages)}
+
+New, updated summary:`;
 
         const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
         const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
