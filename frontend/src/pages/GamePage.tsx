@@ -602,7 +602,7 @@ const GamePage = () => {
               {/* Typing indicator for AI (animated three dots) */}
               {isAiTyping && (
                 <div className={`flex justify-start`}>
-                  <div className={`inline-flex items-center px-3 py-1 rounded-md bg-slate-800 text-foreground`}>
+                  <div className={`inline-flex items-center px-3 py-2 rounded-md bg-slate-800 text-foreground`}>
                     <div className="ai-typing-indicator" aria-hidden>
                       <span></span>
                       <span></span>
@@ -862,7 +862,7 @@ const _aiTypingStyles = `
 
 @keyframes typing-fade-bounce {
   0%, 70%, 100% { transform: translateY(0); opacity: 0.75; }
-  35% { transform: translateY(-6px); opacity: 1; }
+  35% { transform: translateY(-4px); opacity: 1; }
 }
 `;
 
