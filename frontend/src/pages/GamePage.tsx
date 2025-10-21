@@ -28,7 +28,7 @@ const GamePage = () => {
   
   // Check if this is a new game (from navigation state)
   // Default to true for direct URL access
-  const isNewGame = location.state?.isNewGame ?? true;
+  const isNewGame = location.state?.isNewGame ?? false;
   
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
@@ -41,7 +41,7 @@ const GamePage = () => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   
   // NEW: Session ID for stateful gameplay
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(location.state?.sessionId || null);
   const [isSessionLoading, setIsSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const sessionAttempted = useRef(false); // Prevent infinite loop
@@ -55,6 +55,131 @@ const GamePage = () => {
   
   // Input validation error modal
   const [modalErrorMessage, setModalErrorMessage] = useState<string | null>(null);
+
+  // DEBUG: Log case data structure
+  useEffect(() => {
+    if (data) {
+      console.log('[GamePage-DEBUG] Case data loaded:', data);
+      console.log('[GamePage-DEBUG] Evidence array:', data.evidence);
+      console.log('[GamePage-DEBUG] Evidence count:', data.evidence?.length ?? 0);
+      console.log('[GamePage-DEBUG] Suspects count:', data.suspects?.length ?? 0);
+    }
+  }, [data]);
+
+  // DEBUG: Log unlocked evidence updates
+  useEffect(() => {
+    console.log('[GamePage-DEBUG] Unlocked evidence IDs updated:', unlockedEvidenceIds);
+    console.log('[GamePage-DEBUG] Unlocked count:', unlockedEvidenceIds.length);
+  }, [unlockedEvidenceIds]);
+
+  // Rate limiting: Countdown timer
+  useEffect(() => {
+    if (cooldownTime <= 0) return;
+
+    const timer = setInterval(() => {
+      setCooldownTime((prev) => {
+        if (prev <= 1) {
+          console.log('[RATE-LIMIT] Cooldown finished');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [cooldownTime]);
+
+  // Show tutorial only for new games (not resumed sessions)
+  // Also check localStorage to avoid showing on every new game if user has seen it before
+  useEffect(() => {
+    // Only show tutorial if this is a new game AND user hasn't seen it before
+    if (isNewGame && data) {
+      const hasSeenTutorial = localStorage.getItem("hasSeenTutorial");
+      if (!hasSeenTutorial) {
+        // Delay to ensure UI is fully rendered
+        setTimeout(() => {
+          setShowTutorial(true);
+        }, 1000);
+      }
+    }
+  }, [isNewGame, data]);
+
+  // NEW: Create or retrieve game session when case loads
+  useEffect(() => {
+    // Prevent infinite loop: only attempt once
+    if (!data || !caseId || sessionAttempted.current) return;
+
+    const manageSession = async () => {
+      sessionAttempted.current = true; // Mark as attempted
+      setIsSessionLoading(true);
+      
+      try {
+        let currentSessionId = sessionId;
+        let isNew = isNewGame;
+        let gameState;
+
+        // If sessionId is not passed from navigation, fetch/create it
+        if (!currentSessionId) {
+            console.log('[SESSION] No sessionId from navigation, creating/retrieving session for case:', caseId);
+            const res = await fetch('/api/sessions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ caseId })
+            });
+            
+            if (!res.ok) {
+              const errorText = await res.text();
+              console.error('[SESSION] Server error:', errorText);
+              throw new Error(`Session creation/retrieval failed: ${res.status}`);
+            }
+            
+            const sessionData = await res.json();
+            currentSessionId = sessionData.sessionId;
+            gameState = sessionData.gameState;
+            isNew = sessionData.isNew;
+            setSessionId(currentSessionId);
+            console.log(`[SESSION] ${isNew ? 'Created' : 'Retrieved'} session:`, currentSessionId);
+        } else {
+            console.log(`[SESSION] Using sessionId from navigation:`, currentSessionId);
+        }
+
+        // If session has chatHistory, initialize messages with it
+        if (gameState && Array.isArray(gameState.chat_history) && gameState.chat_history.length > 0) {
+          console.log(`[SESSION] Loading ${gameState.chat_history.length} message(s) from chat history`);
+          setMessages(gameState.chat_history);
+        } else if (isNew && currentSessionId) {
+          // If it's a new game with no history, send the initial message
+          console.log('[SESSION] New game, sending initial message to AI.');
+          const initialMessageResponse = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: currentSessionId, message: 'start_game', caseId: caseId })
+          });
+
+          if (!initialMessageResponse.ok) {
+            throw new Error('Failed to get initial message from AI');
+          }
+
+          const payload = await initialMessageResponse.json();
+          if (payload && payload.response && typeof payload.response.content === 'string') {
+            const initialAiMessage = payload.response;
+            setMessages([initialAiMessage]);
+          } else {
+            console.error("Invalid initial AI response payload:", payload);
+            throw new Error("Received an invalid initial message from the server.");
+          }
+        }
+      } catch (err: any) {
+        console.error('[SESSION] Failed to manage session:', err);
+        // Store error separately - DON'T add to messages (causes infinite loop!)
+        setSessionError(err.message || 'Failed to initialize game session');
+      } finally {
+        setIsSessionLoading(false);
+      }
+    };
+
+    manageSession();
+  }, [data, caseId, sessionId, isNewGame]);
 
   // DEBUG: Log case data structure
   useEffect(() => {
@@ -327,21 +452,19 @@ const GamePage = () => {
         return; // Don't reset cooldown - let it run out
       }
       
-      const payload = await res.json().catch(() => ({ responseText: "" }));
+      const payload = await res.json().catch(() => ({}));
       console.log('[FRONTEND-DEBUG] Full payload received from backend:', payload);
-      console.log('[FRONTEND-DEBUG] Payload received from backend:', payload);
+      
       // Merge any newly unlocked evidence IDs
-      if (payload && Array.isArray(payload.unlockedEvidenceIds) && payload.unlockedEvidenceIds.length > 0) {
-        console.log('[FRONTEND-DEBUG] Current unlocked IDs BEFORE update:', unlockedEvidenceIds);
-        console.log('[FRONTEND-DEBUG] New IDs received from backend:', payload.unlockedEvidenceIds);
-        setUnlockedEvidenceIds(prevIds => {
-          const merged = Array.from(new Set([...prevIds, ...payload.unlockedEvidenceIds]));
-          console.log("[FRONTEND-DEBUG] New unlockedEvidenceIds state:", merged);
-          return merged;
-        });
-        console.log('[FRONTEND-DEBUG] Attempting to update unlocked evidence with:', payload.unlockedEvidenceIds);
+      if (payload && payload.updatedState && Array.isArray(payload.updatedState.unlockedClues)) {
+        const newIds = payload.updatedState.unlockedClues;
+        if (newIds.length > unlockedEvidenceIds.length) {
+            console.log('[FRONTEND-DEBUG] New IDs received from backend:', newIds);
+            setUnlockedEvidenceIds(newIds);
+        }
       }
-      const reply = (payload && typeof payload.responseText === "string") ? payload.responseText : "(no response)";
+
+      const reply = payload?.response?.content || "(no response)";
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
     } catch (err) {
       setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not reach chat service." }]);

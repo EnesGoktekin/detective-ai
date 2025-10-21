@@ -96,8 +96,8 @@ const CaseSelectionPage = () => {
       const { sessionId } = await response.json();
       console.log(`[CaseSelection] New session created: ${sessionId}`);
       
-      // Navigate to game page with isNewGame flag
-      navigate(`/game/${caseId}`, { state: { isNewGame: true } });
+      // Navigate to game page with isNewGame flag and the new sessionId
+      navigate(`/game/${caseId}`, { state: { isNewGame: true, sessionId: sessionId } });
     } catch (err) {
       console.error('[CaseSelection] Error starting new game:', err);
       setIsProcessing(false);
