@@ -320,10 +320,14 @@ function generateDynamicGameStateSummary(gameState, newItems, caseData, initialD
   const locationName = currentLocationData?.name || currentLocation;
 
   // Build the base summary with initial case data
+  const suspectDetails = initialData.suspects.map(s => 
+    `- ${s.name}: ${s.suspect_trait}. ${s.physical_description}. ${s.relation_to_victim}`
+  ).join('\n');
+
   let summary = `[DYNAMIC_GAME_STATE]
 Case Synopsis: ${initialData.synopsis}
 Victim(s): ${initialData.victims.map(v => v.name).join(', ')}
-Suspects: ${initialData.suspects.map(s => `${s.name} (${s.physical_description})`).join('; ')}
+Suspects:\n${suspectDetails}
 
 Current Location: ${locationName}
 Total Clues Unlocked So Far: ${unlockedClues.length}

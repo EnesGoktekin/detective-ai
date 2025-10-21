@@ -9,9 +9,13 @@
  * KULLANIM YERİ: Oyun Ekranı (bilgi paneli), Suçluyu Seç Menüsü.
  */
 export interface Suspect {
-  id: string; 
-  name: string; 
-  shortInfo: string; // Örn: "Maktulün kıskanç eski eşi"
+  id: string;
+  name: string;
+  history: string;
+  frontend_role: string;
+  suspect_trait: string;
+  relation_to_victim: string;
+  physical_description: string;
 }
 
 /**

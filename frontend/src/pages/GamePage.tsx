@@ -649,7 +649,7 @@ const GamePage = () => {
                     {data.suspects.map((s) => (
                       <li key={s.id} className="font-jetbrains text-sm text-foreground p-3 bg-slate-800 rounded">
                         <div className="font-semibold">{s.name}</div>
-                        <div className="text-muted-foreground text-xs">{s.shortInfo}</div>
+                        <div className="text-muted-foreground text-xs">{s.frontend_role}</div>
                       </li>
                     ))}
                   </ul>
