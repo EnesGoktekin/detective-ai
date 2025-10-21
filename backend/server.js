@@ -625,4 +625,118 @@ app.get('/api/models', async (_req, res) => {
   }
 });
 
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { sessionId, message, caseId } = req.body;
+    if (!sessionId || !message || !caseId) {
+      return res.status(400).json({ error: 'Missing sessionId, message, or caseId' });
+    }
+
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found');
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // 1. Fetch current game state and immutable data
+    const [gameState, immutableRecords] = await Promise.all([
+      readSessionProgress(supabase, sessionId),
+      getCaseImmutableRecords(supabase, caseId)
+    ]);
+
+    if (!gameState || !immutableRecords) {
+      return res.status(404).json({ error: 'Game state or case data not found.' });
+    }
+
+    // Ensure chat_history is an array
+    if (!Array.isArray(gameState.chat_history)) {
+      gameState.chat_history = [];
+    }
+    // Add user message to history
+    if (message !== 'start_game') {
+        gameState.chat_history.push({ role: 'user', content: message });
+    }
+
+    // 2. Run game logic
+    const intent = parseIntent(message, immutableRecords, gameState);
+    const { newState, newClues, newSuspectInfo } = await updateGameState(intent, gameState, immutableRecords);
+    const newItems = [...newClues, ...newSuspectInfo];
+
+    // 3. Generate AI context
+    const dynamicContext = generateDynamicGameStateSummary(newState, newItems, immutableRecords);
+    const recentMessages = newState.chat_history.slice(-6, -1).map(msg => ({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
+    }));
+
+    // 4. Call Gemini API
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Missing GEMINI_API_KEY' });
+    }
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    const aiRequestPayload = {
+      contents: [
+        ...recentMessages,
+        { role: 'user', parts: [{ text: message }] }
+      ],
+      systemInstruction: {
+        role: 'system',
+        parts: [
+          { text: JSON.stringify(DETECTIVE_SYSTEM_INSTRUCTION) },
+          { text: dynamicContext }
+        ]
+      }
+    };
+
+    let aiTextResponse;
+    try {
+        const { data: aiApiResult, status } = await axios.post(url, aiRequestPayload);
+
+        if (status === 200 && aiApiResult?.candidates?.[0]?.content?.parts?.[0]?.text) {
+            aiTextResponse = aiApiResult.candidates[0].content.parts[0].text;
+        } else {
+            console.error('[GEMINI-API-ERROR] Invalid response structure or status:', { status, data: aiApiResult });
+            aiTextResponse = "I... seem to have lost my train of thought. What were we talking about?";
+        }
+    } catch (apiError) {
+        console.error('[GEMINI-API-CALL-ERROR] Axios request failed:', apiError.response ? apiError.response.data : apiError.message);
+        // Re-throw to be caught by the main handler, which will send the detailed error
+        throw apiError;
+    }
+    
+    const aiResponse = {
+      role: 'assistant',
+      content: aiTextResponse
+    };
+
+    // 5. Save final state
+    newState.chat_history.push(aiResponse);
+    
+    const progressToSave = {
+        ...newState, // contains updated unlockedClues, etc.
+        chat_history: newState.chat_history,
+        last_five_messages: newState.chat_history.slice(-5)
+    };
+    // Remove properties that don't exist in the session_progress table
+    delete progressToSave.session_id;
+    delete progressToSave.user_id;
+    delete progressToSave.case_id;
+    delete progressToSave.created_at;
+    delete progressToSave.updated_at;
+
+    await saveSessionProgress(supabase, sessionId, progressToSave);
+
+    res.json({
+      response: aiResponse,
+      updatedState: newState
+    });
+
+  } catch (error) {
+    const errorPayload = error.response?.data || { message: error.message };
+    console.error('[CHAT-API-ERROR]:', errorPayload);
+    res.status(500).json({ error: 'Failed to process chat message.', details: errorPayload });
+  }
+});
+
 export default app;

@@ -133,9 +133,30 @@ const GamePage = () => {
         console.log(`[SESSION] ${isNew ? 'Created' : 'Retrieved'} session:`, newSessionId);
         
         // NEW: If session has chatHistory, initialize messages with it
-        if (gameState && Array.isArray(gameState.chatHistory) && gameState.chatHistory.length > 0) {
-          console.log(`[SESSION] Loading ${gameState.chatHistory.length} message(s) from chat history`);
-          setMessages(gameState.chatHistory);
+        if (gameState && Array.isArray(gameState.chat_history) && gameState.chat_history.length > 0) {
+          console.log(`[SESSION] Loading ${gameState.chat_history.length} message(s) from chat history`);
+          setMessages(gameState.chat_history);
+        } else if (isNew) {
+          // If it's a new game with no history, send the initial message
+          console.log('[SESSION] New game, sending initial message to AI.');
+          const initialMessageResponse = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: newSessionId, message: 'start_game', caseId: caseId })
+          });
+
+          if (!initialMessageResponse.ok) {
+            throw new Error('Failed to get initial message from AI');
+          }
+
+          const payload = await initialMessageResponse.json();
+          if (payload && payload.response && typeof payload.response.content === 'string') {
+            const initialAiMessage = payload.response;
+            setMessages([initialAiMessage]);
+          } else {
+            console.error("Invalid initial AI response payload:", payload);
+            throw new Error("Received an invalid initial message from the server.");
+          }
         }
       } catch (err: any) {
         console.error('[SESSION] Failed to create session:', err);
