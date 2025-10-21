@@ -13,12 +13,24 @@ export async function getCaseInitialData(supabase, caseId) {
       .eq('case_id', caseId)
       .single();
     if (error) throw error;
+
+    // Also fetch the list of all possible evidence (names and IDs only) for the UI
+    const { data: evidenceShells, error: evidenceError } = await supabase
+      .from('case_immutable_records')
+      .select('evidence_truth')
+      .eq('case_id', caseId)
+      .single();
+    if (evidenceError) throw evidenceError;
+
+    const evidence = (evidenceShells.evidence_truth || []).map(({ id, name }) => ({ id, name }));
+
     return {
       caseId: data.case_id,
       synopsis: data.synopsis,
       victims: data.victims || {},
       suspects: data.suspects || [],
       initialLocationId: data.initial_location_id,
+      evidence, // Add the evidence shells to the initial data
     };
   } catch (err) {
     console.error(`[DB_HELPER_ERROR] getCaseInitialData: ${err.message}`);

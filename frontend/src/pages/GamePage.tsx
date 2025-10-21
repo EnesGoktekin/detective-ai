@@ -455,12 +455,17 @@ const GamePage = () => {
       const payload = await res.json().catch(() => ({}));
       console.log('[FRONTEND-DEBUG] Full payload received from backend:', payload);
       
-      // Merge any newly unlocked evidence IDs
-      if (payload && payload.updatedState && Array.isArray(payload.updatedState.unlockedClues)) {
-        const newIds = payload.updatedState.unlockedClues;
-        if (newIds.length > unlockedEvidenceIds.length) {
-            console.log('[FRONTEND-DEBUG] New IDs received from backend:', newIds);
-            setUnlockedEvidenceIds(newIds);
+      // Merge any newly unlocked evidence IDs from the full evidence_log
+      if (payload && payload.updatedState && Array.isArray(payload.updatedState.evidence_log)) {
+        const newEvidenceLog = payload.updatedState.evidence_log;
+        const newIds = newEvidenceLog.map(e => e.id);
+        
+        // Use Set for efficient update and to avoid duplicates
+        const updatedIds = Array.from(new Set([...unlockedEvidenceIds, ...newIds]));
+
+        if (updatedIds.length > unlockedEvidenceIds.length) {
+            console.log('[FRONTEND-DEBUG] New evidence unlocked. Updating state with IDs:', updatedIds);
+            setUnlockedEvidenceIds(updatedIds);
         }
       }
 
