@@ -602,7 +602,7 @@ const GamePage = () => {
               {/* Typing indicator for AI (animated three dots) */}
               {isAiTyping && (
                 <div className={`flex justify-start`}>
-                  <div className={`max-w-[60%] p-3 rounded-lg mb-4 bg-slate-800 text-foreground`}>
+                  <div className={`inline-flex items-center px-3 py-1 rounded-md bg-slate-800 text-foreground`}>
                     <div className="ai-typing-indicator" aria-hidden>
                       <span></span>
                       <span></span>
@@ -842,37 +842,27 @@ export default GamePage;
 const _aiTypingStyles = `
 /* GamePage.tsx injected styles - centered, smoother "wave" animation */
 .ai-typing-indicator {
-    display: flex; /* İçindeki span'leri yan yana tutmak için */
-    justify-content: center; /* Yatayda ortalamak için */
-    align-items: center; /* Dikeyde ortalamak için */
-    width: 100%; /* Kapsayıcının tam genişliği kaplamasını sağlar */
-    padding: 10px 0; /* Üstten ve alttan boşluk */
-    margin-top: 10px;
-    margin-bottom: 20px; /* Daha fazla boşluk */
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 .ai-typing-indicator span {
-    display: inline-block;
-    width: 10px; /* Noktaları biraz daha büyük yapalım */
-    height: 10px;
-    background-color: #e0e0e0; /* Nokta rengi */
-    border-radius: 50%;
-    margin: 0 5px; /* Noktalar arasındaki boşluk */
-    opacity: 0.6; /* Başlangıçta biraz şeffaf olsun */
-    animation: typing-fade-bounce 1.4s infinite ease-in-out; /* Yeni animasyon */
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background-color: #cbd5e1; /* softer dot color */
+  border-radius: 50%;
+  margin: 0;
+  opacity: 0.75;
+  animation: typing-fade-bounce 1.1s infinite ease-in-out;
 }
 
-.ai-typing-indicator span:nth-child(2) { animation-delay: 0.2s; /* Gecikme */ }
-.ai-typing-indicator span:nth-child(3) { animation-delay: 0.4s; /* Gecikme */ }
+.ai-typing-indicator span:nth-child(2) { animation-delay: 0.15s; }
+.ai-typing-indicator span:nth-child(3) { animation-delay: 0.3s; }
 
 @keyframes typing-fade-bounce {
-    0%, 80%, 100% {
-        transform: translateY(0);
-        opacity: 0.6;
-    }
-    40% {
-        transform: translateY(-10px); /* Daha yüksek zıplama */
-        opacity: 1; /* Zıplarken daha görünür */
-    }
+  0%, 70%, 100% { transform: translateY(0); opacity: 0.75; }
+  35% { transform: translateY(-6px); opacity: 1; }
 }
 `;
 
