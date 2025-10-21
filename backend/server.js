@@ -308,11 +308,10 @@ async function updateGameState(intent, currentGameState, caseData) {
  * @param {Object} caseData - Full case data (for location info)
  * @returns {string} - Natural language summary for AI context
  */
-function generateDynamicGameStateSummary(gameState, newItems, caseData) {
+function generateDynamicGameStateSummary(gameState, newItems, caseData, initialData) {
   const {
-    currentLocation = 'study_room',
+    currentLocation,
     unlockedClues = [],
-    knownLocations = [],
   } = gameState;
 
   // Get current location data from caseData.locationData
@@ -320,11 +319,14 @@ function generateDynamicGameStateSummary(gameState, newItems, caseData) {
   const currentLocationData = locations.find(loc => loc.id === currentLocation);
   const locationName = currentLocationData?.name || currentLocation;
 
-  // Build the base summary
+  // Build the base summary with initial case data
   let summary = `[DYNAMIC_GAME_STATE]
+Case Synopsis: ${initialData.synopsis}
+Victim(s): ${initialData.victims.map(v => v.name).join(', ')}
+Suspects: ${initialData.suspects.map(s => s.name).join(', ')}
+
 Current Location: ${locationName}
-Total Clues Unlocked: ${unlockedClues.length}
-Known Locations: ${knownLocations.map(id => locations.find(l => l.id === id)?.name || id).join(', ')}
+Total Clues Unlocked So Far: ${unlockedClues.length}
 `;
 
   // ============================================================================
@@ -641,14 +643,15 @@ app.post('/api/chat', async (req, res) => {
 
     // 1. Fetch current game state and immutable data
     console.log('[CHAT_API] Step 1: Fetching game state and immutable records...');
-    const [gameState, immutableRecords] = await Promise.all([
+    const [gameState, immutableRecords, initialData] = await Promise.all([
       readSessionProgress(supabase, sessionId),
-      getCaseImmutableRecords(supabase, caseId)
+      getCaseImmutableRecords(supabase, caseId),
+      getCaseInitialData(supabase, caseId)
     ]);
     console.log('[CHAT_API] Step 1: Fetched data successfully.');
 
-    if (!gameState || !immutableRecords) {
-      console.error(`[CHAT_API] Game state or case data not found for session: ${sessionId}`);
+    if (!gameState || !immutableRecords || !initialData) {
+      console.error(`[CHAT_API] Game state, initial data, or case data not found for session: ${sessionId}`);
       return res.status(404).json({ error: 'Game state or case data not found.' });
     }
 
@@ -673,7 +676,7 @@ app.post('/api/chat', async (req, res) => {
 
     // 3. Generate AI context
     console.log('[CHAT_API] Step 3: Generating dynamic context for AI...');
-    const dynamicContext = generateDynamicGameStateSummary(newState, newItems, immutableRecords);
+    const dynamicContext = generateDynamicGameStateSummary(newState, newItems, immutableRecords, initialData);
     const recentMessages = newState.chat_history.slice(-6, -1).map(msg => ({
         role: msg.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: msg.content }]
