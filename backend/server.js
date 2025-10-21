@@ -751,6 +751,32 @@ New, updated summary:`;
       }
     };
 
+    // DEV-ONLY: Log outgoing aiRequestPayload for debugging without exposing API keys
+    // To enable set environment: DEBUG_PAYLOAD=true and NODE_ENV!=production
+    if (process.env.NODE_ENV !== 'production' && process.env.DEBUG_PAYLOAD === 'true') {
+      try {
+        const safeSystemParts = (aiRequestPayload.systemInstruction && Array.isArray(aiRequestPayload.systemInstruction.parts))
+          ? aiRequestPayload.systemInstruction.parts.map((p) => {
+              const txt = String(p.text || '');
+              // Truncate long system texts to keep logs readable
+              return { text: txt.length > 2000 ? txt.slice(0, 2000) + '...<truncated>' : txt };
+            })
+          : [];
+
+        const safePayload = {
+          contents: aiRequestPayload.contents || [],
+          systemInstruction: {
+            role: aiRequestPayload.systemInstruction?.role || 'system',
+            parts: safeSystemParts
+          }
+        };
+
+        console.log('DATA-DEBUG outgoing aiRequestPayload:', JSON.stringify(safePayload, null, 2));
+      } catch (logErr) {
+        console.warn('DATA-DEBUG failed to stringify aiRequestPayload', logErr);
+      }
+    }
+
     let aiTextResponse;
     try {
   const { data: aiApiResult, status } = await axios.post(url, aiRequestPayload, { headers: { 'x-goog-api-key': apiKey } });
