@@ -121,6 +121,11 @@ const DETECTIVE_SYSTEM_INSTRUCTION = {
 // GAME LOGIC: Blind Map / Secret Vault Architecture
 // ============================================
 
+// Güvenli Regex Escape Fonksiyonu - parseIntent içinde kullanılmak üzere
+function escapeRegExp(string) {
+  return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
+}
+
 /**
  * parseIntent - NEW BLIND MAP VERSION
  * Target-first architecture using database-driven interactables from current location
@@ -164,9 +169,12 @@ function parseIntent(message, caseData, currentGameState) {
     const interactableId = interactable.id;
     const keywords = Array.isArray(interactable.keywords) ? interactable.keywords : [];
 
-    // Check if any keyword appears in message
+    // Check if any keyword appears in message (use safe escaping and Unicode-aware boundaries)
     for (const keyword of keywords) {
-      const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+      if (!keyword || typeof keyword !== 'string') continue;
+      const escapedKeyword = escapeRegExp(keyword.trim());
+      // Use (^|\W) and (\W|$) as safer boundaries and the 'u' flag for Unicode
+      const regex = new RegExp(`(^|\\W)(${escapedKeyword})(\\W|$)`, 'iu');
       if (regex.test(msg)) {
         console.log(`[INTENT] 🎯 Interactable detected: "${interactableId}" (matched: "${keyword}")`);
         return { action: 'inspect', target_id: interactableId, keywords: [keyword] };
