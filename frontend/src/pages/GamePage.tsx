@@ -817,30 +817,39 @@ export default GamePage;
 
 /* Local styles for animated AI typing indicator */
 const _aiTypingStyles = `
+/* GamePage.tsx injected styles - centered, smoother "wave" animation */
 .ai-typing-indicator {
-  display: flex;
-  align-items: center;
-  margin-top: 10px;
-  margin-left: 20px; /* align with message bubbles */
+    display: flex; /* İçindeki span'leri yan yana tutmak için */
+    justify-content: center; /* Yatayda ortalamak için */
+    align-items: center; /* Dikeyde ortalamak için */
+    width: 100%; /* Kapsayıcının tam genişliği kaplamasını sağlar */
+    padding: 10px 0; /* Üstten ve alttan boşluk */
+    margin-top: 10px;
+    margin-bottom: 20px; /* Daha fazla boşluk */
 }
 .ai-typing-indicator span {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  background-color: #f0f0f0; /* light dots */
-  border-radius: 50%;
-  margin: 0 4px;
-  animation: bounce 0.6s infinite alternate;
+    display: inline-block;
+    width: 10px; /* Noktaları biraz daha büyük yapalım */
+    height: 10px;
+    background-color: #e0e0e0; /* Nokta rengi */
+    border-radius: 50%;
+    margin: 0 5px; /* Noktalar arasındaki boşluk */
+    opacity: 0.6; /* Başlangıçta biraz şeffaf olsun */
+    animation: typing-fade-bounce 1.4s infinite ease-in-out; /* Yeni animasyon */
 }
-.ai-typing-indicator span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-.ai-typing-indicator span:nth-child(3) {
-  animation-delay: 0.4s;
-}
-@keyframes bounce {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(-5px); }
+
+.ai-typing-indicator span:nth-child(2) { animation-delay: 0.2s; /* Gecikme */ }
+.ai-typing-indicator span:nth-child(3) { animation-delay: 0.4s; /* Gecikme */ }
+
+@keyframes typing-fade-bounce {
+    0%, 80%, 100% {
+        transform: translateY(0);
+        opacity: 0.6;
+    }
+    40% {
+        transform: translateY(-10px); /* Daha yüksek zıplama */
+        opacity: 1; /* Zıplarken daha görünür */
+    }
 }
 `;
 
