@@ -722,15 +722,21 @@ New, updated summary:`;
     console.log('[CHAT_API] Step 2.5: Updating game state...');
     const { newState, newClues, newSuspectInfo } = await updateGameState(intent, gameState, immutableRecords);
     const newItems = [...newClues, ...newSuspectInfo];
-    console.log('[CHAT_API] Step 2.5: Game state updated.');
+    console.log(`[CHAT_API] Step 2.5: Game state updated. Found ${newClues.length} new clues and ${newSuspectInfo.length} new suspect infos.`);
+    if (newClues.length > 0) {
+      console.log('[CHAT_API] New Clues:', newClues.map(c => c.id));
+    }
 
     // 3. Generate AI context
     console.log('[CHAT_API] Step 3: Generating dynamic context for AI...');
-    const dynamicContext = generateDynamicGameStateSummary(newState, newItems, immutableRecords, initialData);
-    const recentMessages = newState.chat_history.slice(-11, -1).map(msg => ({
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content }]
-    }));
+  const dynamicContext = generateDynamicGameStateSummary(newState, newItems, immutableRecords, initialData);
+  // Build recentMessages: take up to 10 messages prior to the current user message (exclude the latest entry)
+  const history = Array.isArray(newState.chat_history) ? newState.chat_history : [];
+  const recentPrior = history.length > 0 ? history.slice(0, history.length - 1).slice(-10) : [];
+  const recentMessages = recentPrior.map(msg => ({
+    role: msg.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: msg.content }]
+  }));
     console.log('[CHAT_API] Step 3: Dynamic context generated.');
 
     // If this is the first turn, provide a specific instruction to the AI to start the conversation.
@@ -788,11 +794,14 @@ New, updated summary:`;
     console.log('[CHAT_API] Step 5: Saving final game state...');
     newState.chat_history.push(aiResponse);
     
-    const progressToSave = {
-        ...newState, // contains updated unlockedClues, etc.
-        chat_history: newState.chat_history,
-        last_five_messages: newState.chat_history.slice(-10)
-    };
+  const progressToSave = {
+    ...newState, // contains updated unlockedClues, etc.
+    chat_history: newState.chat_history,
+    // Persist the long-term AI summary so it survives across restarts
+    ai_core_summary: newState.ai_core_summary || null,
+    // Store the last five messages for quick resume/preview
+    last_five_messages: newState.chat_history.slice(-5)
+  };
     // Remove properties that don't exist in the session_progress table
     delete progressToSave.session_id;
     delete progressToSave.user_id;
