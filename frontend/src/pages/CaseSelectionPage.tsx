@@ -86,7 +86,7 @@ const CaseSelectionPage = () => {
       const response = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ case_id: caseId })
+        body: JSON.stringify({ caseId: caseId })
       });
       
       if (!response.ok) {
