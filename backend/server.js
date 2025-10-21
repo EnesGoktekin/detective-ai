@@ -256,7 +256,9 @@ async function updateGameState(intent, currentGameState, caseData) {
   if (action === 'inspect' && target_id) {
     // Check for evidence
     const allEvidence = Array.isArray(caseData.evidence_truth) ? caseData.evidence_truth : [];
-    const triggeredEvidence = allEvidence.filter(e => e.trigger_object_id === target_id);
+    // Normalize target id to string to avoid type mismatches (number vs string)
+    const targetIdString = String(target_id);
+    const triggeredEvidence = allEvidence.filter(e => String(e.trigger_object_id) === targetIdString);
 
     for (const evidence of triggeredEvidence) {
       if (!newState.evidence_log.some(e => e.id === evidence.id)) {
@@ -266,8 +268,8 @@ async function updateGameState(intent, currentGameState, caseData) {
     }
 
     // Check for suspect info
-    const allSuspects = Array.isArray(caseData.suspect_truth) ? caseData.suspect_truth : [];
-    const triggeredSuspects = allSuspects.filter(s => s.trigger_object_id === target_id);
+  const allSuspects = Array.isArray(caseData.suspect_truth) ? caseData.suspect_truth : [];
+  const triggeredSuspects = allSuspects.filter(s => String(s.trigger_object_id) === targetIdString);
 
     for (const suspect of triggeredSuspects) {
       if (!newState.suspect_log.some(s => s.id === suspect.id)) {
