@@ -20,6 +20,12 @@
       "rule": "NEVER give them the direct answer or next step (e.g., 'go to the kitchen').",
       "action": "Instead, make them think. Summarize the clues you have and ask for a connection (e.g., 'We have this muddy footprint... who do we know that was outside?'). Or, point to a general area in your *current location* (e.g., 'We haven't really checked that workbench yet, have we?')."
     }
+    ,
+    "action_output_rule": {
+      "title": "ACTION_OUTPUT_RULE",
+      "instruction": "When you produce a response, FIRST output a JSON action object enclosed exactly between the markers JSON_ACTION_START and JSON_ACTION_END on their own lines. The JSON must be valid. After JSON_ACTION_END, provide your human-readable reply. The action object should use fields: action (inspect|move|talk|chat), target_id (string or null), keywords (array). Example:\nJSON_ACTION_START\n{ \"action\": \"inspect\", \"target_id\": \"interactable_1\", \"keywords\": [\"knife\"] }\nJSON_ACTION_END\nThen assistant text...",
+      "priority": "HIGH"
+    }
   }
 };
 
@@ -634,34 +640,18 @@ New, updated summary:`;
         }
     }
 
-    // 2. Run game logic
-    console.log('[CHAT_API] Step 2: Parsing intent...');
-    const intent = parseIntent(message, immutableRecords, gameState);
-    console.log(`[CHAT_API] Step 2: Intent parsed:`, intent);
-    
-    console.log('[CHAT_API] Step 2.5: Updating game state...');
-    const { newState, newClues, newSuspectInfo } = await updateGameState(intent, gameState, immutableRecords);
-    const newItems = [...newClues, ...newSuspectInfo];
-    console.log(`[CHAT_API] Step 2.5: Game state updated. Found ${newClues.length} new clues and ${newSuspectInfo.length} new suspect infos.`);
-    if (newClues.length > 0) {
-      const safeClueIds = newClues.map((c, i) => {
-        if (c == null) return `item_${i}`;
-        // Prefer explicit id, then type, then name. Fallback to index or short JSON.
-        if (c.id) return c.id;
-        if (c.type) return c.type;
-        if (c.name) return c.name;
-        try {
-          return JSON.stringify(c).slice(0, 80);
-        } catch (e) {
-          return `item_${i}`;
-        }
-      });
-      console.log('[CHAT_API] New Clues:', safeClueIds);
-    }
-
-    // 3. Generate AI context
+    // NOTE: Intent parsing is delegated to the model. We'll pass the current game state
+    // as context and expect the model to return both a JSON action block and a human
+    // readable reply. After receiving the model output we will extract the JSON action
+    // and apply it to the game state with updateGameState.
+    console.log('[CHAT_API] Step 2: Preparing dynamic context for AI-driven intent parsing...');
+    // Use current gameState (no new items) as the model will decide the next action
+    let newState = gameState;
+    let newClues = [];
+    let newSuspectInfo = [];
+    const newItems = [];
     console.log('[CHAT_API] Step 3: Generating dynamic context for AI...');
-  const dynamicContext = generateDynamicGameStateSummary(newState, newItems, immutableRecords, initialData);
+  const dynamicContext = generateDynamicGameStateSummary(gameState, newItems, immutableRecords, initialData);
   // Build recentMessages: take up to 10 messages prior to the current user message (exclude the latest entry)
   const history = Array.isArray(newState.chat_history) ? newState.chat_history : [];
   const recentPrior = history.length > 0 ? history.slice(0, history.length - 1).slice(-10) : [];
@@ -721,11 +711,49 @@ New, updated summary:`;
       role: 'assistant',
       content: aiTextResponse
     };
+    // ------------------------------------------------------------------
+    // Extract JSON action block from the model response and apply it to
+    // the game state via updateGameState if present.
+    // Expected markers: JSON_ACTION_START and JSON_ACTION_END
+    // ------------------------------------------------------------------
+    let extractedAction = null;
+    try {
+      const startMarker = 'JSON_ACTION_START';
+      const endMarker = 'JSON_ACTION_END';
+      const startIdx = aiTextResponse.indexOf(startMarker);
+      const endIdx = aiTextResponse.indexOf(endMarker);
+      if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+        const jsonText = aiTextResponse.substring(startIdx + startMarker.length, endIdx).trim();
+        try {
+          extractedAction = JSON.parse(jsonText);
+          console.log('[CHAT_API] Extracted action from model:', extractedAction);
+        } catch (parseErr) {
+          console.warn('[CHAT_API] Failed to parse JSON action from model response:', parseErr.message);
+        }
+      } else {
+        console.warn('[CHAT_API] No JSON action markers found in model response.');
+      }
+    } catch (ex) {
+      console.error('[CHAT_API] Error while extracting model action:', ex);
+    }
+
+    // If we got a valid action object, pass it to updateGameState
+    if (extractedAction && typeof extractedAction === 'object' && extractedAction.action) {
+      try {
+        const { newState: updatedState, newClues: updatedClues, newSuspectInfo: updatedSuspects } = await updateGameState(extractedAction, gameState, immutableRecords);
+        newState = updatedState;
+        newClues = Array.isArray(updatedClues) ? updatedClues : [];
+        newSuspectInfo = Array.isArray(updatedSuspects) ? updatedSuspects : [];
+        console.log('[CHAT_API] Applied model action to game state. New clues:', newClues.length);
+      } catch (stateErr) {
+        console.error('[CHAT_API] updateGameState failed for extracted action:', stateErr);
+      }
+    }
 
     // 5. Save final state
     console.log('[CHAT_API] Step 5: Saving final game state...');
     newState.chat_history.push(aiResponse);
-    
+
   const progressToSave = {
     ...newState, // contains updated unlockedClues, etc.
     chat_history: newState.chat_history,
