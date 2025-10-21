@@ -55,6 +55,8 @@ const GamePage = () => {
   
   // Input validation error modal
   const [modalErrorMessage, setModalErrorMessage] = useState<string | null>(null);
+  // AI typing indicator
+  const [isAiTyping, setIsAiTyping] = useState(false);
 
   // DEBUG: Log case data structure
   useEffect(() => {
@@ -431,6 +433,9 @@ const GamePage = () => {
     setMessage("");
 
     try {
+      // Show typing indicator while awaiting AI response
+      setIsAiTyping(true);
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -482,6 +487,9 @@ const GamePage = () => {
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
     } catch (err) {
       setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not reach chat service." }]);
+    } finally {
+      // Always hide typing indicator when request completes
+      setIsAiTyping(false);
     }
   };
 
@@ -569,6 +577,15 @@ const GamePage = () => {
                   </div>
                 </div>
               ))}
+
+              {/* Typing indicator for AI */}
+              {isAiTyping && (
+                <div className={`flex justify-start`}>
+                  <div className={`max-w-[60%] p-3 rounded-lg mb-4 bg-slate-800 text-foreground`}>
+                    <p className="font-jetbrains text-sm italic">The AI is typing<span className="ml-2">…</span></p>
+                  </div>
+                </div>
+              )}
             </div>
           </ScrollArea>
           
