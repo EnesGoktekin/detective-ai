@@ -118,7 +118,7 @@ export async function createSession(supabase, caseId, initialLocationId, locatio
     chat_history: [],
     last_five_messages: [],
     ai_core_summary: 'The investigation has just begun.',
-    currentLocation: initialLocationId, // Add the starting location ID
+    current_location: initialLocationId, // Use snake_case for DB column
     current_map_state: [{ ...sanitizedInitialLocation, is_current: true }], // Start with only the initial location visible and marked as current
   };
 
@@ -175,7 +175,13 @@ export async function readSessionProgress(supabase, sessionId) {
     return null; // No progress data found, return null
   }
 
-  // 3. Combine and return
+  // 3. Map snake_case to camelCase for application logic
+  if (progressData && progressData.current_location) {
+    progressData.currentLocation = progressData.current_location;
+    delete progressData.current_location;
+  }
+
+  // 4. Combine and return
   return { ...stateData, ...progressData };
 }
 
@@ -187,10 +193,17 @@ export async function readSessionProgress(supabase, sessionId) {
  * @param {object} progressData - The complete progress object to save.
  */
 export async function saveSessionProgress(supabase, sessionId, progressData) {
-  // 1. Update the session_progress table with the new data
+  // 1. Map camelCase to snake_case for DB
+  const dbProgressData = { ...progressData };
+  if (dbProgressData.currentLocation) {
+    dbProgressData.current_location = dbProgressData.currentLocation;
+    delete dbProgressData.currentLocation;
+  }
+
+  // 2. Update the session_progress table with the new data
   const { error: progressError } = await supabase
     .from('session_progress')
-    .update(progressData)
+    .update(dbProgressData)
     .eq('session_id', sessionId);
 
   if (progressError) {
