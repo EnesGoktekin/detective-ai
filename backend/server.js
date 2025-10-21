@@ -104,6 +104,20 @@ const DETECTIVE_SYSTEM_INSTRUCTION = {
         "If the user asks for details about discovered evidence, repeat the exact description from [NEWLY DISCOVERED INFORMATION]."
       ]
     },
+    "EVIDENCE_OUTPUT_RULE": {
+      "title": "EVIDENCE_OUTPUT_RULE (CRITICAL)",
+      "instruction": "If and only if you discover a NEW piece of evidence or NEW suspect information during your investigation, you MUST list their IDs after your response. Do NOT include this tag if nothing new is found.",
+      "format": "Use the tag [NEW_EVIDENCE_IDS] followed by a comma-separated list of IDs (e.g., [NEW_EVIDENCE_IDS] evidence-778-1, info-778-A).",
+      "example_found": "Tamam, kadehe baktım... [NEW_EVIDENCE_IDS] clue_champagne_flute_lip_prints",
+      "example_not_found": "O masada ilginç bir şey yok."
+    },
+    "HIDDEN_ACTION_RULE": {
+      "title": "HIDDEN_ACTION_RULE (Game Engine Only)",
+      "instruction": "You MUST analyze the User's message and determine the single most likely object or location ID they are referring to. This ID is critical for the game engine. Use 'null' if the user is only chatting or expressing emotion.",
+      "format": "You MUST place ONLY the determined ID string between the tags: [ACTION_ID_START] and [ACTION_ID_END]. This tag MUST NOT be visible to the player.",
+      "example_object": "Tamam, kadehe bakıyorum şimdi.[ACTION_ID_START]obj_champagne_flute[ACTION_ID_END]",
+      "example_location": "Ben mutfağa geçeyim.[ACTION_ID_START]loc_kitchen[ACTION_ID_END]"
+    },
     "stuck_loop_rule": {
       "title": "STUCK_LOOP_RULE (Proactive Thinking)",
       "condition": "If the user seems stuck (e.g., 3+ failed actions, saying 'I don't know', or repeating the same failed action), DO NOT remain passive. Act like a colleague.",
@@ -126,6 +140,31 @@ function escapeRegExp(string) {
   return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
 
+// extractHiddenActionId - parses the model's response and extracts the hidden
+// action ID placed between [ACTION_ID_START] and [ACTION_ID_END]. Returns
+// the ID string or null when none found or when the model explicitly returns 'null'.
+function extractHiddenActionId(message) {
+  if (!message || typeof message !== 'string') return null;
+  const match = message.match(/\[ACTION_ID_START\]\s*([A-Za-z0-9_.-]+)\[ACTION_ID_END\]/i);
+  if (!match || !match[1]) return null;
+  const id = match[1].trim();
+  return id.toLowerCase() === 'null' ? null : id;
+}
+
+// extractEvidenceIds - parses the model's response and returns an array of
+// evidence IDs listed after the [NEW_EVIDENCE_IDS] tag. Returns [] when none found.
+function extractEvidenceIds(message) {
+  if (!message || typeof message !== 'string') return [];
+  const match = message.match(/\[NEW_EVIDENCE_IDS\]([^\n\r]*)/i);
+  if (!match || !match[1]) return [];
+  const raw = match[1].trim();
+  if (!raw) return [];
+  // Split by comma and/or whitespace, trim, filter empties, dedupe
+  const parts = raw.split(/[,\n\r]+/).map(p => p.trim()).filter(Boolean);
+  const deduped = Array.from(new Set(parts));
+  return deduped;
+}
+
 /**
  * parseIntent - NEW BLIND MAP VERSION
  * Target-first architecture using database-driven interactables from current location
@@ -135,94 +174,11 @@ function escapeRegExp(string) {
  * @param {object} currentGameState - Current game state with currentLocation
  * @returns {object} - { action: string, target_id: string|null, keywords: string[] }
  */
-function parseIntent(message, caseData, currentGameState) {
-  const msg = message.toLowerCase().trim();
-
-  // Get current location from game state
-  const currentLocationId = currentGameState.currentLocation;
-  if (!currentLocationId) {
-    console.error("[INTENT] No currentLocation in gameState");
-    return { action: 'chat', target_id: null, keywords: [] };
-  }
-
-  // Find current location data from caseData.locationData
-  const locations = Array.isArray(caseData.locationData) ? caseData.locationData : [];
-  const currentLocationData = locations.find(loc => loc.id === currentLocationId);
-
-  if (!currentLocationData) {
-    console.error(`[INTENT] Location '${currentLocationId}' not found in caseData.locations`);
-    return { action: 'chat', target_id: null, keywords: [] };
-  }
-
-  // ============================================================================
-  // PHASE 1: INSPECT - Check interactables at current location (TARGET-FIRST)
-  // ============================================================================
-
-  const interactables = Array.isArray(currentLocationData.interactables)
-    ? currentLocationData.interactables
-    : [];
-
-  console.log(`[INTENT] Current location: ${currentLocationId}, Interactables: ${JSON.stringify(interactables.map(i => i.id))}`);
-
-  // Scan message for interactable keywords
-  for (const interactable of interactables) {
-    const interactableId = interactable.id;
-    const keywords = Array.isArray(interactable.keywords) ? interactable.keywords : [];
-
-    // Check if any keyword appears in message (use safe escaping and Unicode-aware boundaries)
-    for (const keyword of keywords) {
-      if (!keyword || typeof keyword !== 'string') continue;
-      const escapedKeyword = escapeRegExp(keyword.trim());
-      // Use (^|\W) and (\W|$) as safer boundaries and the 'u' flag for Unicode
-      const regex = new RegExp(`(^|\\W)(${escapedKeyword})(\\W|$)`, 'iu');
-      if (regex.test(msg)) {
-        console.log(`[INTENT] 🎯 Interactable detected: "${interactableId}" (matched: "${keyword}")`);
-        return { action: 'inspect', target_id: interactableId, keywords: [keyword] };
-      }
-    }
-  }
-
-  // ============================================================================
-  // PHASE 2: MOVE - Check if user wants to move to another location
-  // ============================================================================
-
-  const moveKeywords = ['go to', 'move to', 'travel to', 'visit', 'git', 'geç', 'yürü', 'gidelim', 'gidiyorum'];
-  const hasMoveIntent = moveKeywords.some(keyword => msg.includes(keyword));
-
-  if (hasMoveIntent || msg.includes('git') || msg.includes('geç')) {
-    // Scan all locations for keyword matches
-    for (const location of locations) {
-      const locationId = location.id;
-      const locationKeywords = Array.isArray(location.keywords) ? location.keywords : [];
-
-      for (const keyword of locationKeywords) {
-        if (msg.includes(keyword.toLowerCase())) {
-          console.log(`[INTENT] 🚶 Move detected to: "${locationId}" (matched: "${keyword}")`);
-          return { action: 'move', target_id: locationId, keywords: [keyword] };
-        }
-      }
-    }
-  }
-
-  // ============================================================================
-  // PHASE 3: TALK/INTERROGATE (Future implementation)
-  // ============================================================================
-
-  const talkKeywords = ['talk', 'speak', 'ask', 'interrogate', 'question', 'interview', 'konuş', 'sor', 'sorgula'];
-  for (const keyword of talkKeywords) {
-    if (msg.includes(keyword)) {
-      console.log(`[INTENT] 🗣️ Talk action detected`);
-      return { action: 'talk', target_id: 'suspect', keywords: [keyword] };
-    }
-  }
-
-  // ============================================================================
-  // PHASE 4: FALLBACK - General Chat
-  // ============================================================================
-
-  console.log(`[INTENT] 💬 No specific target/action - treating as chat`);
-  return { action: 'chat', target_id: null, keywords: [] };
-}
+// parseIntent has been intentionally removed. The system now relies on the
+// model-returned [ACTION_ID_START]...[ACTION_ID_END] hidden tag (HIDDEN_ACTION_RULE)
+// as the primary source of intent. If necessary, a lightweight fallback
+// can be reintroduced later, but for now the engine uses the extracted
+// target ID via `extractHiddenActionId`.
 
 /**
  * updateGameState - NEW SECRET VAULT VERSION
@@ -624,12 +580,12 @@ app.get('/api/models', async (_req, res) => {
     if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found in /api/models');
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'Missing GEMINI_API_KEY/GOOGLE_API_KEY' });
-    }
-   const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
-    const { data } = await axios.get(url);
+     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: 'Missing GEMINI_API_KEY/GOOGLE_API_KEY' });
+      }
+     const url = `https://generativelanguage.googleapis.com/v1beta/models`;
+      const { data } = await axios.get(url, { headers: { 'x-goog-api-key': apiKey } });
     const models = Array.isArray(data?.models) ? data.models : [];
     const simplified = models.map((m) => ({
       name: m?.name,
@@ -662,6 +618,11 @@ app.post('/api/chat', async (req, res) => {
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials not found');
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+  // Track IDs the model suggested but couldn't be validated (skipped), and
+  // track newly added IDs so we can return them to the frontend for UI updates.
+  let skippedIds = [];
+  let newIds = [];
 
     // 1. Fetch current game state and immutable data
     console.log('[CHAT_API] Step 1: Fetching game state and immutable records...');
@@ -701,16 +662,15 @@ ${JSON.stringify(lastTenMessages)}
 
 New, updated summary:`;
 
-        const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-        const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-
         const summaryRequestPayload = {
             contents: [{ role: 'user', parts: [{ text: summarizationPrompt }] }]
         };
 
         try {
-            const { data: summaryResult } = await axios.post(url, summaryRequestPayload);
+      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+      const { data: summaryResult } = await axios.post(url, summaryRequestPayload, { headers: { 'x-goog-api-key': apiKey } });
             const newSummary = summaryResult?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (newSummary) {
                 gameState.ai_core_summary = newSummary;
@@ -724,15 +684,17 @@ New, updated summary:`;
         }
     }
 
-    // 2. Run game logic
-    console.log('[CHAT_API] Step 2: Parsing intent...');
-    const intent = parseIntent(message, immutableRecords, gameState);
-    console.log(`[CHAT_API] Step 2: Intent parsed:`, intent);
-    
-    console.log('[CHAT_API] Step 2.5: Updating game state...');
-    const { newState, newClues, newSuspectInfo } = await updateGameState(intent, gameState, immutableRecords);
-    const newItems = [...newClues, ...newSuspectInfo];
-    console.log(`[CHAT_API] Step 2.5: Game state updated. Found ${newClues.length} new clues and ${newSuspectInfo.length} new suspect infos.`);
+    // 2. Prepare game state for model-driven logic (no parseIntent)
+  console.log('[CHAT_API] Step 2: Model-driven intent only (no parseIntent). Preparing current game state...');
+  // Start from the persisted gameState and prepare empty arrays for newly discovered items.
+  let newState = { ...gameState };
+  newState.evidence_log = Array.isArray(newState.evidence_log) ? newState.evidence_log : [];
+  newState.suspect_log = Array.isArray(newState.suspect_log) ? newState.suspect_log : [];
+  newState.knownLocations = Array.isArray(newState.knownLocations) ? newState.knownLocations : [];
+  let newClues = [];
+  let newSuspectInfo = [];
+  let newItems = [];
+  console.log('[CHAT_API] Step 2: Prepared state; will apply model-provided ACTION_ID if present.');
     if (newClues.length > 0) {
       const safeClueIds = newClues.map((c, i) => {
         if (c == null) return `item_${i}`;
@@ -773,7 +735,7 @@ New, updated summary:`;
       return res.status(500).json({ error: 'Missing GEMINI_API_KEY' });
     }
     const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
     
     const aiRequestPayload = {
       contents: [
@@ -791,13 +753,13 @@ New, updated summary:`;
 
     let aiTextResponse;
     try {
-        const { data: aiApiResult, status } = await axios.post(url, aiRequestPayload);
+  const { data: aiApiResult, status } = await axios.post(url, aiRequestPayload, { headers: { 'x-goog-api-key': apiKey } });
         console.log('[CHAT_API] Step 4: Received response from Gemini API.');
 
-        if (status === 200 && aiApiResult?.candidates?.[0]?.content?.parts?.[0]?.text) {
-            aiTextResponse = aiApiResult.candidates[0].content.parts[0].text;
-            console.log('[CHAT_API] Step 4: Successfully extracted AI response text.');
-        } else {
+    if (status === 200 && aiApiResult?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      aiTextResponse = aiApiResult.candidates[0].content.parts[0].text;
+      console.log('[CHAT_API] Step 4: Successfully extracted AI response text.');
+    } else {
             console.error('[GEMINI-API-ERROR] Invalid response structure or status:', { status, data: aiApiResult });
             aiTextResponse = "I... seem to have lost my train of thought. What were we talking about?";
         }
@@ -807,9 +769,142 @@ New, updated summary:`;
         throw apiError;
     }
     
+    // Preserve raw response for parsing, but clean tags for player-visible text
+    const rawAiText = aiTextResponse || '';
+    // Extract hidden target id if present
+    const targetId = extractHiddenActionId(rawAiText);
+    if (targetId) {
+      console.log('[CHAT_API] Hidden ACTION_ID found from model:', targetId);
+      try {
+        // If the model provided a hidden action id, run the inspect action for that target
+        const additional = await updateGameState({ action: 'inspect', target_id: targetId }, newState, immutableRecords);
+        // Merge results
+        if (additional && additional.newState) {
+          // Append any new clues/suspect info
+          if (Array.isArray(additional.newClues) && additional.newClues.length > 0) {
+            newClues.push(...additional.newClues);
+            // record newly added clue IDs
+            for (const c of additional.newClues) {
+              if (c && c.id) newIds.push(String(c.id));
+            }
+          }
+          if (Array.isArray(additional.newSuspectInfo) && additional.newSuspectInfo.length > 0) {
+            newSuspectInfo.push(...additional.newSuspectInfo);
+            // record newly added suspect IDs
+            for (const s of additional.newSuspectInfo) {
+              if (s && s.id) newIds.push(String(s.id));
+            }
+          }
+          newState = additional.newState;
+          newItems = [...newClues, ...newSuspectInfo];
+          console.log(`[CHAT_API] After hidden-action update: +${additional.newClues.length || 0} clues, +${additional.newSuspectInfo.length || 0} suspect infos.`);
+        }
+      } catch (e) {
+        console.error('[CHAT_API] Error applying hidden ACTION_ID to game state:', e);
+      }
+    }
+
+    // First: move any suspect-like objects that may have been placed into newClues
+    if (Array.isArray(newClues) && newClues.length > 0) {
+      const remainingClues = [];
+      for (const c of newClues) {
+        const looksLikeSuspect = c && (c.suspect_trait || c.physical_description || c.relation_to_victim || c.frontend_role || c.role === 'suspect' || c.type === 'suspect');
+        if (looksLikeSuspect) {
+          // Ensure suspect_log exists
+          newState.suspect_log = Array.isArray(newState.suspect_log) ? newState.suspect_log : [];
+          if (!newState.suspect_log.some(s => String(s.id) === String(c.id))) {
+            newState.suspect_log.push({ ...c });
+            newSuspectInfo.push(c);
+            console.log('[CHAT_API] Moved suspect-like item from newClues into suspect_log:', c.id || '(no id)');
+          }
+        } else {
+          remainingClues.push(c);
+        }
+      }
+      newClues = remainingClues;
+    }
+
+    // Also extract any evidence IDs explicitly listed by the model and merge them
+    const modelSuppliedIds = extractEvidenceIds(rawAiText);
+    if (Array.isArray(modelSuppliedIds) && modelSuppliedIds.length > 0) {
+      console.log('[CHAT_API] Model-supplied evidence IDs found (raw):', modelSuppliedIds);
+
+      // Validate model-supplied IDs against immutableRecords to ensure data integrity
+      const evidenceTruth = Array.isArray(immutableRecords.evidence_truth) ? immutableRecords.evidence_truth : [];
+      const suspectTruth = Array.isArray(immutableRecords.suspect_truth) ? immutableRecords.suspect_truth : [];
+
+      const validModelIds = modelSuppliedIds.filter((mid) => {
+        const idStr = String(mid).trim();
+        if (!idStr) return false;
+        const inEvidence = evidenceTruth.some(e => String(e.id) === idStr);
+        const inSuspect = suspectTruth.some(s => String(s.id) === idStr);
+        return inEvidence || inSuspect;
+      });
+
+      const invalidIds = modelSuppliedIds.filter(id => !validModelIds.includes(id));
+      if (invalidIds.length > 0) {
+        console.warn('[CHAT_API] Model-supplied IDs failed validation against immutableRecords and will be ignored:', invalidIds);
+        // track skipped IDs for returning to frontend
+        skippedIds = [...skippedIds, ...invalidIds];
+      }
+
+      if (validModelIds.length > 0) {
+        // Build sets of existing IDs for evidence and suspects
+        const existingEvidenceIds = new Set((newState.evidence_log || []).map(e => (e && e.id) ? String(e.id) : '').filter(Boolean));
+        const existingSuspectIds = new Set((newState.suspect_log || []).map(s => (s && s.id) ? String(s.id) : '').filter(Boolean));
+
+        // Also include any newly discovered clues' ids (remaining clues)
+        for (const c of newClues) {
+          if (c && c.id) existingEvidenceIds.add(String(c.id));
+        }
+        // Include any newly discovered suspect infos
+        for (const s of newSuspectInfo) {
+          if (s && s.id) existingSuspectIds.add(String(s.id));
+        }
+
+        // Append validated model-supplied ids to the correct log based on immutable records
+        for (const mid of validModelIds) {
+          const idStr = String(mid).trim();
+          if (!idStr) continue;
+          const evidenceObj = evidenceTruth.find(e => String(e.id) === idStr);
+          const suspectObj = suspectTruth.find(s => String(s.id) === idStr);
+
+          if (evidenceObj && !existingEvidenceIds.has(idStr)) {
+            newState.evidence_log.push({ ...evidenceObj });
+            existingEvidenceIds.add(idStr);
+            newIds.push(idStr);
+            console.log('[CHAT_API] Appended validated evidence object to evidence_log:', idStr);
+          } else if (suspectObj && !existingSuspectIds.has(idStr)) {
+            newState.suspect_log = Array.isArray(newState.suspect_log) ? newState.suspect_log : [];
+            newState.suspect_log.push({ ...suspectObj });
+            existingSuspectIds.add(idStr);
+            newIds.push(idStr);
+            console.log('[CHAT_API] Appended validated suspect object to suspect_log:', idStr);
+          } else if (!evidenceObj && !suspectObj) {
+            // Fallback (shouldn't happen due to prior validation) — still persist id-only to evidence_log
+            if (!existingEvidenceIds.has(idStr)) {
+              newState.evidence_log.push({ id: idStr });
+              existingEvidenceIds.add(idStr);
+              newIds.push(idStr);
+              console.warn('[CHAT_API] Validated ID not found in immutableRecords at insert time, persisted as id-only to evidence_log:', idStr);
+            }
+          }
+        }
+
+        // Refresh newItems list after changes
+        newItems = [...newClues, ...newSuspectInfo];
+      }
+    }
+
+    // Clean player-visible AI text by removing hidden tags and evidence-id tags
+    const cleanedText = rawAiText
+      .replace(/\[ACTION_ID_START\][\s\S]*?\[ACTION_ID_END\]/gi, '')
+      .replace(/\[NEW_EVIDENCE_IDS\][^\n\r]*/gi, '')
+      .trim();
+
     const aiResponse = {
       role: 'assistant',
-      content: aiTextResponse
+      content: cleanedText || rawAiText
     };
 
     // 5. Save final state
@@ -834,9 +929,15 @@ New, updated summary:`;
     await saveSessionProgress(supabase, sessionId, progressToSave);
     console.log('[CHAT_API] Step 5: Game state saved successfully.');
 
+    // Deduplicate newIds before returning
+    newIds = Array.from(new Set(newIds.map(id => String(id))));
+    skippedIds = Array.from(new Set(skippedIds.map(id => String(id))));
+
     res.json({
       response: aiResponse,
-      updatedState: newState
+      updatedState: newState,
+      newlyAddedIds: newIds,
+      skippedIds: skippedIds
     });
 
   } catch (error) {
