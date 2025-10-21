@@ -578,11 +578,15 @@ const GamePage = () => {
                 </div>
               ))}
 
-              {/* Typing indicator for AI */}
+              {/* Typing indicator for AI (animated three dots) */}
               {isAiTyping && (
                 <div className={`flex justify-start`}>
                   <div className={`max-w-[60%] p-3 rounded-lg mb-4 bg-slate-800 text-foreground`}>
-                    <p className="font-jetbrains text-sm italic">The AI is typing<span className="ml-2">…</span></p>
+                    <div className="ai-typing-indicator" aria-hidden>
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -810,3 +814,40 @@ const GamePage = () => {
 };
 
 export default GamePage;
+
+/* Local styles for animated AI typing indicator */
+const _aiTypingStyles = `
+.ai-typing-indicator {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+  margin-left: 20px; /* align with message bubbles */
+}
+.ai-typing-indicator span {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: #f0f0f0; /* light dots */
+  border-radius: 50%;
+  margin: 0 4px;
+  animation: bounce 0.6s infinite alternate;
+}
+.ai-typing-indicator span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.ai-typing-indicator span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes bounce {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-5px); }
+}
+`;
+
+// Inject styles into document when module is loaded (safe for SPA)
+if (typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.setAttribute('data-source', 'GamePage.aiTyping');
+  style.textContent = _aiTypingStyles;
+  document.head.appendChild(style);
+}
