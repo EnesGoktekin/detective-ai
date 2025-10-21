@@ -391,7 +391,7 @@ app.post('/api/sessions', async (req, res) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // caseId'yi doğrudan body'den güvenli şekilde yakala.
-    const caseId = req.body.caseId;
+    const { caseId } = req.body;
 
     if (!caseId) {
         // Bu hata, Frontend'in takılmasına neden olan gereksiz çağrıları durdurur.
