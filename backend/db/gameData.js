@@ -118,6 +118,7 @@ export async function createSession(supabase, caseId, initialLocationId, locatio
     chat_history: [],
     last_five_messages: [],
     ai_core_summary: 'The investigation has just begun.',
+    currentLocation: initialLocationId, // Add the starting location ID
     current_map_state: [{ ...sanitizedInitialLocation, is_current: true }], // Start with only the initial location visible and marked as current
   };
 
