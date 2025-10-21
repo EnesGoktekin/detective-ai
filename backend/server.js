@@ -628,7 +628,9 @@ app.get('/api/models', async (_req, res) => {
 app.post('/api/chat', async (req, res) => {
   try {
     const { sessionId, message, caseId } = req.body;
+    console.log(`[CHAT_API] Received request for session: ${sessionId}, case: ${caseId}`);
     if (!sessionId || !message || !caseId) {
+      console.error('[CHAT_API] Missing sessionId, message, or caseId');
       return res.status(400).json({ error: 'Missing sessionId, message, or caseId' });
     }
 
@@ -638,12 +640,15 @@ app.post('/api/chat', async (req, res) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // 1. Fetch current game state and immutable data
+    console.log('[CHAT_API] Step 1: Fetching game state and immutable records...');
     const [gameState, immutableRecords] = await Promise.all([
       readSessionProgress(supabase, sessionId),
       getCaseImmutableRecords(supabase, caseId)
     ]);
+    console.log('[CHAT_API] Step 1: Fetched data successfully.');
 
     if (!gameState || !immutableRecords) {
+      console.error(`[CHAT_API] Game state or case data not found for session: ${sessionId}`);
       return res.status(404).json({ error: 'Game state or case data not found.' });
     }
 
@@ -657,16 +662,23 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // 2. Run game logic
+    console.log('[CHAT_API] Step 2: Parsing intent...');
     const intent = parseIntent(message, immutableRecords, gameState);
+    console.log(`[CHAT_API] Step 2: Intent parsed:`, intent);
+    
+    console.log('[CHAT_API] Step 2.5: Updating game state...');
     const { newState, newClues, newSuspectInfo } = await updateGameState(intent, gameState, immutableRecords);
     const newItems = [...newClues, ...newSuspectInfo];
+    console.log('[CHAT_API] Step 2.5: Game state updated.');
 
     // 3. Generate AI context
+    console.log('[CHAT_API] Step 3: Generating dynamic context for AI...');
     const dynamicContext = generateDynamicGameStateSummary(newState, newItems, immutableRecords);
     const recentMessages = newState.chat_history.slice(-6, -1).map(msg => ({
         role: msg.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: msg.content }]
     }));
+    console.log('[CHAT_API] Step 3: Dynamic context generated.');
 
     // If this is the first turn, provide a specific instruction to the AI to start the conversation.
     const userMessageForAI = message === 'start_game'
@@ -674,6 +686,7 @@ app.post('/api/chat', async (req, res) => {
       : message;
 
     // 4. Call Gemini API
+    console.log('[CHAT_API] Step 4: Calling Gemini API...');
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'Missing GEMINI_API_KEY' });
@@ -698,9 +711,11 @@ app.post('/api/chat', async (req, res) => {
     let aiTextResponse;
     try {
         const { data: aiApiResult, status } = await axios.post(url, aiRequestPayload);
+        console.log('[CHAT_API] Step 4: Received response from Gemini API.');
 
         if (status === 200 && aiApiResult?.candidates?.[0]?.content?.parts?.[0]?.text) {
             aiTextResponse = aiApiResult.candidates[0].content.parts[0].text;
+            console.log('[CHAT_API] Step 4: Successfully extracted AI response text.');
         } else {
             console.error('[GEMINI-API-ERROR] Invalid response structure or status:', { status, data: aiApiResult });
             aiTextResponse = "I... seem to have lost my train of thought. What were we talking about?";
@@ -717,6 +732,7 @@ app.post('/api/chat', async (req, res) => {
     };
 
     // 5. Save final state
+    console.log('[CHAT_API] Step 5: Saving final game state...');
     newState.chat_history.push(aiResponse);
     
     const progressToSave = {
@@ -732,6 +748,7 @@ app.post('/api/chat', async (req, res) => {
     delete progressToSave.updated_at;
 
     await saveSessionProgress(supabase, sessionId, progressToSave);
+    console.log('[CHAT_API] Step 5: Game state saved successfully.');
 
     res.json({
       response: aiResponse,
