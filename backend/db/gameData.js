@@ -145,8 +145,6 @@ export async function saveSessionProgress(supabase, sessionId, progressData) {
     // Remove app-level properties before saving to DB
     delete dbProgressData.currentLocation; 
     delete dbProgressData.knownLocations; // This property is derived and not in the DB schema
-    delete dbProgressData.unlockedClues; // This is tracked in evidence_log
-    delete dbProgressData.unlockedSuspects; // This is tracked in suspect_log
 
     const { error: progressError } = await supabase
         .from('session_progress')

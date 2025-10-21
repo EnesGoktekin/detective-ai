@@ -228,17 +228,15 @@ async function updateGameState(intent, currentGameState, caseData) {
   const { action, target_id } = intent;
   const newState = { ...currentGameState };
   // Defensively initialize arrays on the new state object
-  newState.unlockedClues = Array.isArray(newState.unlockedClues) ? newState.unlockedClues : [];
-  newState.unlockedSuspects = Array.isArray(newState.unlockedSuspects) ? newState.unlockedSuspects : [];
+  newState.evidence_log = Array.isArray(newState.evidence_log) ? newState.evidence_log : [];
+  newState.suspect_log = Array.isArray(newState.suspect_log) ? newState.suspect_log : [];
   newState.knownLocations = Array.isArray(newState.knownLocations) ? newState.knownLocations : [];
   
   const newClues = [];
-  const newSuspectInfo = []; // Add this line
+  const newSuspectInfo = [];
 
   // Get current location
   const currentLocation = newState.currentLocation;
-  const unlockedClues = newState.unlockedClues;
-  const unlockedSuspects = newState.unlockedSuspects; // Add this line
 
   console.log(`[GAME-LOGIC] Processing action='${action}' target='${target_id}' at location='${currentLocation}'`);
 
@@ -252,9 +250,9 @@ async function updateGameState(intent, currentGameState, caseData) {
     const triggeredEvidence = allEvidence.filter(e => e.trigger_object_id === target_id);
 
     for (const evidence of triggeredEvidence) {
-      if (!unlockedClues.includes(evidence.id)) {
+      if (!newState.evidence_log.some(e => e.id === evidence.id)) {
         newClues.push(evidence);
-        newState.unlockedClues.push(evidence.id);
+        newState.evidence_log.push(evidence);
       }
     }
 
@@ -263,9 +261,9 @@ async function updateGameState(intent, currentGameState, caseData) {
     const triggeredSuspects = allSuspects.filter(s => s.trigger_object_id === target_id);
 
     for (const suspect of triggeredSuspects) {
-      if (!unlockedSuspects.includes(suspect.id)) {
+      if (!newState.suspect_log.some(s => s.id === suspect.id)) {
         newSuspectInfo.push(suspect);
-        newState.unlockedSuspects.push(suspect.id);
+        newState.suspect_log.push(suspect);
       }
     }
 
@@ -281,7 +279,7 @@ async function updateGameState(intent, currentGameState, caseData) {
 
     if (knownLocations.includes(target_id)) {
       newState.currentLocation = target_id;
-      const locations = Array.isArray(caseData.locations) ? caseData.locations : [];
+      const locations = Array.isArray(caseData.locationData) ? caseData.locationData : [];
       const newLocationData = locations.find(loc => loc.id === target_id);
       if (newLocationData && newLocationData.scene_description) {
         newClues.push({ type: 'location_change', description: newLocationData.scene_description });
@@ -311,26 +309,35 @@ async function updateGameState(intent, currentGameState, caseData) {
 function generateDynamicGameStateSummary(gameState, newItems, caseData, initialData) {
   const {
     currentLocation,
-    unlockedClues = [],
+    ai_core_summary = 'The investigation is just beginning.',
+    evidence_log = [],
   } = gameState;
 
   // Get current location data from caseData.locationData
   const locations = Array.isArray(caseData.locationData) ? caseData.locationData : [];
   const currentLocationData = locations.find(loc => loc.id === currentLocation);
   const locationName = currentLocationData?.name || currentLocation;
+  const interactables = currentLocationData?.interactables?.map(obj => obj.name).join(', ') || 'None';
 
-  // Build the base summary with initial case data
   const suspectDetails = initialData.suspects.map(s => 
     `- ${s.name}: ${s.suspect_trait}. ${s.physical_description}. ${s.relation_to_victim}`
   ).join('\n');
+  
+  const evidenceLogText = evidence_log.length > 0 
+    ? evidence_log.map(e => `- ${e.name}: ${e.description}`).join('\n')
+    : 'No evidence found yet.';
 
-  let summary = `[DYNAMIC_GAME_STATE]
+  let summary = `[AI_CORE_SUMMARY]
+${ai_core_summary}
+
+[CURRENT_GAME_STATE]
 Case Synopsis: ${initialData.synopsis}
 Victim(s): ${initialData.victims.map(v => v.name).join(', ')}
 Suspects:\n${suspectDetails}
 
 Current Location: ${locationName}
-Total Clues Unlocked So Far: ${unlockedClues.length}
+Objects of Interest in this Location: ${interactables}
+Evidence Log:\n${evidenceLogText}
 `;
 
   // ============================================================================
@@ -338,7 +345,7 @@ Total Clues Unlocked So Far: ${unlockedClues.length}
   // ============================================================================
 
   if (newItems && newItems.length > 0) {
-    summary += `[NEWLY DISCOVERED INFORMATION]\n`;
+    summary += `\n[NEWLY DISCOVERED INFORMATION]\n`;
 
     for (const item of newItems) {
       if (item.type === 'location_change') {
@@ -361,7 +368,7 @@ Total Clues Unlocked So Far: ${unlockedClues.length}
   // ============================================================================
 
   summary += `IMPORTANT RULES:
-1. You must ONLY describe evidence using the exact text from [NEWLY DISCOVERED EVIDENCE] above.
+1. You must ONLY describe evidence using the exact text from [NEWLY DISCOVERED INFORMATION] above.
 2. Do NOT make up details about clues. Use the Description text verbatim.
 3. If user asks about evidence not yet discovered, guide them to investigate specific objects.
 4. Be conversational and stay in character as Detective X.`;
@@ -668,6 +675,35 @@ app.post('/api/chat', async (req, res) => {
         gameState.chat_history.push({ role: 'user', content: message });
     }
 
+    // Check if it's time to update the long-term memory summary
+    if (gameState.chat_history.length > 0 && gameState.chat_history.length % 10 === 0) {
+        console.log('[CHAT_API] Triggering AI Core Summary update...');
+        
+        const summarizationPrompt = `Summarize the key findings, clues, and decisions from the following detective conversation. This summary will be used as a long-term memory for the AI detective. Be concise and focus on facts. Conversation: ${JSON.stringify(gameState.chat_history)}`;
+
+        const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+        const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+        const summaryRequestPayload = {
+            contents: [{ role: 'user', parts: [{ text: summarizationPrompt }] }]
+        };
+
+        try {
+            const { data: summaryResult } = await axios.post(url, summaryRequestPayload);
+            const newSummary = summaryResult?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (newSummary) {
+                gameState.ai_core_summary = newSummary;
+                console.log('[CHAT_API] AI Core Summary updated successfully.');
+            } else {
+                console.warn('[CHAT_API] Failed to generate a new AI Core Summary.');
+            }
+        } catch (summaryError) {
+            console.error('[CHAT_API] Error during AI Core Summary update:', summaryError.response ? summaryError.response.data : summaryError.message);
+            // Do not block the main chat flow if summarization fails.
+        }
+    }
+
     // 2. Run game logic
     console.log('[CHAT_API] Step 2: Parsing intent...');
     const intent = parseIntent(message, immutableRecords, gameState);
@@ -681,7 +717,7 @@ app.post('/api/chat', async (req, res) => {
     // 3. Generate AI context
     console.log('[CHAT_API] Step 3: Generating dynamic context for AI...');
     const dynamicContext = generateDynamicGameStateSummary(newState, newItems, immutableRecords, initialData);
-    const recentMessages = newState.chat_history.slice(-6, -1).map(msg => ({
+    const recentMessages = newState.chat_history.slice(-11, -1).map(msg => ({
         role: msg.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: msg.content }]
     }));
@@ -745,7 +781,7 @@ app.post('/api/chat', async (req, res) => {
     const progressToSave = {
         ...newState, // contains updated unlockedClues, etc.
         chat_history: newState.chat_history,
-        last_five_messages: newState.chat_history.slice(-5)
+        last_five_messages: newState.chat_history.slice(-10)
     };
     // Remove properties that don't exist in the session_progress table
     delete progressToSave.session_id;
