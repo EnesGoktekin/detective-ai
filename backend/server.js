@@ -724,7 +724,19 @@ New, updated summary:`;
     const newItems = [...newClues, ...newSuspectInfo];
     console.log(`[CHAT_API] Step 2.5: Game state updated. Found ${newClues.length} new clues and ${newSuspectInfo.length} new suspect infos.`);
     if (newClues.length > 0) {
-      console.log('[CHAT_API] New Clues:', newClues.map(c => c.id));
+      const safeClueIds = newClues.map((c, i) => {
+        if (c == null) return `item_${i}`;
+        // Prefer explicit id, then type, then name. Fallback to index or short JSON.
+        if (c.id) return c.id;
+        if (c.type) return c.type;
+        if (c.name) return c.name;
+        try {
+          return JSON.stringify(c).slice(0, 80);
+        } catch (e) {
+          return `item_${i}`;
+        }
+      });
+      console.log('[CHAT_API] New Clues:', safeClueIds);
     }
 
     // 3. Generate AI context
