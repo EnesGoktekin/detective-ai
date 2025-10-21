@@ -668,6 +668,11 @@ app.post('/api/chat', async (req, res) => {
         parts: [{ text: msg.content }]
     }));
 
+    // If this is the first turn, provide a specific instruction to the AI to start the conversation.
+    const userMessageForAI = message === 'start_game'
+      ? `You are Detective X. You've just arrived at the crime scene. Write your opening message to your colleague (the user), describing the scene based on the [DYNAMIC_GAME_STATE] and asking for their guidance.`
+      : message;
+
     // 4. Call Gemini API
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) {
@@ -679,7 +684,7 @@ app.post('/api/chat', async (req, res) => {
     const aiRequestPayload = {
       contents: [
         ...recentMessages,
-        { role: 'user', parts: [{ text: message }] }
+        { role: 'user', parts: [{ text: userMessageForAI }] }
       ],
       systemInstruction: {
         role: 'system',
