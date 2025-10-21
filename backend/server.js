@@ -139,8 +139,8 @@ function parseIntent(message, caseData, currentGameState) {
     return { action: 'chat', target_id: null, keywords: [] };
   }
 
-  // Find current location data from caseData.locations
-  const locations = Array.isArray(caseData.locations) ? caseData.locations : [];
+  // Find current location data from caseData.locationData
+  const locations = Array.isArray(caseData.locationData) ? caseData.locationData : [];
   const currentLocationData = locations.find(loc => loc.id === currentLocationId);
 
   if (!currentLocationData) {
@@ -315,8 +315,8 @@ function generateDynamicGameStateSummary(gameState, newItems, caseData) {
     knownLocations = [],
   } = gameState;
 
-  // Get current location data from caseData.locations
-  const locations = Array.isArray(caseData.locations) ? caseData.locations : [];
+  // Get current location data from caseData.locationData
+  const locations = Array.isArray(caseData.locationData) ? caseData.locationData : [];
   const currentLocationData = locations.find(loc => loc.id === currentLocation);
   const locationName = currentLocationData?.name || currentLocation;
 
