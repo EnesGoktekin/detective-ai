@@ -57,6 +57,8 @@ const GamePage = () => {
   const [modalErrorMessage, setModalErrorMessage] = useState<string | null>(null);
   // AI typing indicator
   const [isAiTyping, setIsAiTyping] = useState(false);
+  // Debounce timer to avoid flicker for very fast responses
+  const aiTypingTimer = useRef<number | null>(null);
 
   // DEBUG: Log case data structure
   useEffect(() => {
@@ -433,8 +435,13 @@ const GamePage = () => {
     setMessage("");
 
     try {
-      // Show typing indicator while awaiting AI response
-      setIsAiTyping(true);
+      // Debounce showing the typing indicator to avoid flicker on fast responses
+      // Only show if the request takes longer than 150ms
+      const TYPING_DEBOUNCE_MS = 150;
+      if (aiTypingTimer.current) window.clearTimeout(aiTypingTimer.current);
+      aiTypingTimer.current = window.setTimeout(() => {
+        setIsAiTyping(true);
+      }, TYPING_DEBOUNCE_MS);
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -489,9 +496,23 @@ const GamePage = () => {
       setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not reach chat service." }]);
     } finally {
       // Always hide typing indicator when request completes
+      if (aiTypingTimer.current) {
+        window.clearTimeout(aiTypingTimer.current);
+        aiTypingTimer.current = null;
+      }
       setIsAiTyping(false);
     }
   };
+
+  // Cleanup timer on unmount in case component is destroyed while waiting
+  useEffect(() => {
+    return () => {
+      if (aiTypingTimer.current) {
+        window.clearTimeout(aiTypingTimer.current);
+        aiTypingTimer.current = null;
+      }
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-background relative">
@@ -587,6 +608,8 @@ const GamePage = () => {
                       <span></span>
                       <span></span>
                     </div>
+                    {/* ARIA live region for screen readers */}
+                    <div className="sr-only" aria-live="polite">AI is typing</div>
                   </div>
                 </div>
               )}
