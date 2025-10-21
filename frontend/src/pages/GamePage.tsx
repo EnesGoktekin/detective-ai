@@ -392,6 +392,15 @@ const GamePage = () => {
     navigate('/');
   };
 
+  // Validate message locally before sending to backend
+  const isMessageValid = (msg: string): boolean => {
+    const sanitized = msg.trim();
+    if (sanitized.length < 2) return false;
+    // En az bir alfabetik karakter kontrolü (İngilizce + Türkçe harfler)
+    if (!/[a-zA-ZğüşıöçĞÜŞİÖÇ]/.test(sanitized)) return false;
+    return true;
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const text = message.trim();
@@ -574,7 +583,7 @@ const GamePage = () => {
               <Button 
                 type="submit" 
                 size={cooldownTime > 0 ? "default" : "icon"}
-                disabled={!message.trim() || cooldownTime > 0}
+                disabled={!isMessageValid(message) || cooldownTime > 0}
               >
                 {cooldownTime > 0 ? (
                   `Wait (${cooldownTime}s)`
